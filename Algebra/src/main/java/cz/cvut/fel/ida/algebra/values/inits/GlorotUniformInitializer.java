@@ -30,18 +30,16 @@ public class GlorotUniformInitializer implements ValueInitializer {
     @Override
     public void initVector(VectorValue vector) {
         double limit = getLimit(vector);
-        for (int i = 0; i < vector.values.length; i++) { //hope JIT will optimize this access to length
-            vector.values[i] = distribution.getDoubleValue(-limit, limit);
+        for (int i = 0; i < vector.mat.length; i++) { //hope JIT will optimize this access to length
+            vector.mat.data[i] = distribution.getDoubleValue(-limit, limit);
         }
     }
 
     @Override
     public void initMatrix(MatrixValue matrix) {
         double limit = getLimit(matrix);
-        for (int i = 0; i < matrix.rows; i++) {
-            for (int j = 0; j < matrix.cols; j++) {
-                matrix.values[i][j] = distribution.getDoubleValue(-limit, limit);
-            }
+        for (int i = 0; i < matrix.mat.length; i++) {
+            matrix.mat.data[i] = distribution.getDoubleValue(-limit, limit);
         }
     }
 
@@ -50,7 +48,7 @@ public class GlorotUniformInitializer implements ValueInitializer {
     }
 
     protected double getLimit(VectorValue value) {
-        return Math.sqrt(6) / Math.sqrt(value.values.length + 1);
+        return Math.sqrt(6) / Math.sqrt(value.mat.length + 1);
     }
 
     protected double getLimit(ScalarValue value) {

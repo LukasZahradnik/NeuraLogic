@@ -1,6 +1,9 @@
 package cz.cvut.fel.ida.algebra.values;
 
 import cz.cvut.fel.ida.algebra.values.inits.ValueInitializer;
+import org.jblas.DoubleMatrix;
+import org.jblas.NativeBlas;
+import org.jblas.SimpleBlas;
 import org.jetbrains.annotations.NotNull;
 
 import java.text.NumberFormat;
@@ -26,29 +29,45 @@ public class MatrixValue extends Value {
     /**
      * The actual values
      */
-    public double[][] values;
+
+    public DoubleMatrix mat;
 
     public MatrixValue(int rows, int cols) {
         this.rows = rows;
         this.cols = cols;
-        values = new double[rows][cols];
+
+        mat = new DoubleMatrix(rows, cols);
+
+        mat.reshape(this.rows, this.cols);
+    }
+
+    public MatrixValue(DoubleMatrix matrix, int rows, int cols) {
+        this.rows = rows;
+        this.cols = cols;
+
+        mat = matrix;
+        mat.reshape(this.rows, this.cols);
     }
 
     public MatrixValue(List<List<Double>> vectors) {
         this.rows = vectors.size();
         this.cols = vectors.get(0).size();
-        this.values = new double[rows][cols];
+        double[][] values = new double[rows][cols];
         for (int i = 0; i < rows; i++) {
             for (int j = 0; j < cols; j++) {
                 values[i][j] = vectors.get(i).get(j);
             }
         }
+        mat = new DoubleMatrix(values);
+        mat.reshape(this.rows, this.cols);
     }
 
     public MatrixValue(double[][] values) {
-        this.values = values;
         this.rows = values.length;
         this.cols = values[0].length;
+
+        mat = new DoubleMatrix(values);
+        mat.reshape(this.rows, this.cols);
     }
 
 
@@ -75,7 +94,7 @@ public class MatrixValue extends Value {
 
         @Override
         public Double next() {
-            double next = values[row][col];
+            double next = mat.get(row, col);
             if (col < cols - 1)
                 col++;
             else {
@@ -93,22 +112,15 @@ public class MatrixValue extends Value {
 
     @Override
     public MatrixValue zero() {
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                values[i][j] = 0;
-            }
+        for (int i = 0; i < mat.length; i++) {
+            mat.data[i] = 0;
         }
         return this;
     }
 
     @Override
     public MatrixValue clone() {
-        MatrixValue clone = new MatrixValue(rows, cols);
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                clone.values[i][j] = values[i][j];
-            }
-        }
+        MatrixValue clone = new MatrixValue(this.mat.dup(), rows, cols);
         return clone;
     }
 
@@ -119,16 +131,7 @@ public class MatrixValue extends Value {
 
     @Override
     public void transpose() {
-
-        double[][] trValues = new double[cols][rows];
-
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                trValues[j][i] = values[i][j];
-            }
-        }
-
-        values = trValues;
+        mat = mat.transpose();
 
         int tmp = rows;
         rows = cols;
@@ -138,8 +141,7 @@ public class MatrixValue extends Value {
     @Override
     public Value transposedView() {
 //        LOG.severe("Transposed view of a matrix (without actual transposition) not implemented, returning a transposed copy instead!");
-        MatrixValue value = new MatrixValue(values);
-        value.transpose();
+        MatrixValue value = new MatrixValue(mat.transpose(), cols, rows);
         return value;
     }
 
@@ -151,27 +153,27 @@ public class MatrixValue extends Value {
     @Override
     public Value apply(Function<Double, Double> function) {
         MatrixValue result = new MatrixValue(rows, cols);
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                result.values[i][j] = function.apply(values[i][j]);
-            }
+
+        for (int i = 0; i < result.mat.length; ++i) {
+            result.mat.data[i] = function.apply(mat.data[i]);
         }
+
         return result;
     }
 
     @Override
     public double get(int i) {
-        return values[i / rows][i % cols];
+        return mat.get(i / rows, i % cols);
     }
 
     @Override
     public void set(int i, double value) {
-        values[i / rows][i % cols] = value;
+        mat.put(i / rows, i % cols, value);
     }
 
     @Override
     public void increment(int i, double value) {
-        values[i / rows][i % cols] += value;
+        mat.put(i / rows, i % cols, mat.get(i / rows, i % cols) + value);
     }
 
 
@@ -179,10 +181,10 @@ public class MatrixValue extends Value {
     public String toString(NumberFormat numberFormat) {
         StringBuilder sb = new StringBuilder();
         sb.append("[\n");
-        for (int j = 0; j < values.length; j++) {
+        for (int j = 0; j < mat.rows; j++) {
             sb.append("[");
-            for (int i = 0; i < values[j].length; i++) {
-                sb.append(numberFormat.format(values[j][i])).append(",");
+            for (int i = 0; i < mat.columns; i++) {
+                sb.append(numberFormat.format(mat.get(j, i))).append(",");
             }
             sb.replace(sb.length()-1, sb.length(), "],\n");
         }
@@ -204,34 +206,24 @@ public class MatrixValue extends Value {
     @Override
     protected MatrixValue times(ScalarValue value) {
         MatrixValue clone = this.clone();
-        double value1 = value.value;
-        for (int i = 0; i < clone.rows; i++) {
-            for (int j = 0; j < clone.cols; j++) {
-                clone.values[i][j] *= value1;
-            }
-        }
+
+        clone.mat.muli(value.value);
+
         return clone;
     }
 
     @Override
     protected VectorValue times(VectorValue value) {
-        if (rows != value.values.length) {
-            String err = "Matrix row length mismatch with vector length for multiplication: " + rows + " vs." + value.values.length;
+        if (rows != value.mat.length) {
+            String err = "Matrix row length mismatch with vector length for multiplication: " + rows + " vs." + value.mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
         if (!value.rowOrientation) {
-            throw new ArithmeticException("Column vector times matrix, try transposition. Vector size = " + value.values.length);
+            throw new ArithmeticException("Column vector times matrix, try transposition. Vector size = " + value.mat.length);
         }
-        VectorValue result = new VectorValue(cols);
-        double[] resultValues = result.values;
-        double[] origValues = value.values;
-        for (int i = 0; i < cols; i++) {
-            for (int j = 0; j < rows; j++) {
-                resultValues[i] += origValues[j] * values[j][i];
-            }
-        }
-        return result;
+
+        return new VectorValue(value.mat.mmul(mat));
     }
 
     /**
@@ -253,18 +245,8 @@ public class MatrixValue extends Value {
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        MatrixValue result = new MatrixValue(value.rows, this.cols);
-        double[][] lhs = value.values;
 
-        double[][] resultValues = result.values;
-        for (int i = 0; i < value.rows; i++) {         // rows from lhs
-            for (int j = 0; j < cols; j++) {     // columns from rhs
-                for (int k = 0; k < value.cols; k++) { // columns from lhs
-                    resultValues[i][j] += lhs[i][k] * values[k][j];
-                }
-            }
-        }
-        return result;
+        return new MatrixValue(value.mat.mmul(mat), value.rows, this.cols);
     }
 
     @Override
@@ -279,32 +261,18 @@ public class MatrixValue extends Value {
 
     @Override
     protected Value elementTimes(ScalarValue value) {
-        MatrixValue clone = this.clone();
-        double value1 = value.value;
-        for (int i = 0; i < clone.rows; i++) {
-            for (int j = 0; j < clone.cols; j++) {
-                clone.values[i][j] *= value1;
-            }
-        }
-        return clone;
+        return new MatrixValue(mat.mul(value.value), rows, cols);
     }
 
     @Override
     protected Value elementTimes(VectorValue value) {
         LOG.warning("Calculation vector element-wise product with matrix...");
-        if (rows != value.values.length) {
-            String err = "Matrix row length mismatch with vector length for multiplication" + rows + " vs." + value.values.length;
+        if (rows != value.mat.length) {
+            String err = "Matrix row length mismatch with vector length for multiplication" + rows + " vs." + value.mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        MatrixValue result = new MatrixValue(rows, cols);
-        double[][] resultValues = result.values;
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                resultValues[i][j] = values[i][j] * value.values[j];
-            }
-        }
-        return result;
+        return new MatrixValue(mat.mul(value.mat), rows, cols);
     }
 
     @Override
@@ -314,14 +282,7 @@ public class MatrixValue extends Value {
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        MatrixValue result = value.clone();
-        double[][] lhs = result.values;
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                lhs[i][j] *= values[i][j];
-            }
-        }
-        return result;
+        return new MatrixValue(value.mat.mul(mat), rows, cols);
     }
 
     @Override
@@ -336,13 +297,7 @@ public class MatrixValue extends Value {
 
     @Override
     protected Value kroneckerTimes(ScalarValue value) {
-        MatrixValue clone = this.clone();
-        for (int i = 0; i < clone.rows; i++) {
-            for (int j = 0; j < clone.cols; j++) {
-                clone.values[i][j] *= value.value;
-            }
-        }
-        return clone;
+        return new MatrixValue(mat.mul(value.value), rows, cols);
     }
 
     @Override
@@ -350,27 +305,25 @@ public class MatrixValue extends Value {
         int rows = vectorValue.rows() * this.rows;
         int cols = vectorValue.cols() * this.cols;
 
-        MatrixValue result = new MatrixValue(rows, cols);
-        double[][] resultValues = result.values;
-        double[] otherValues = vectorValue.values;
+        double[][] resultValues = new double[rows][cols];
         if (vectorValue.rowOrientation) {
-            for (int c1 = 0; c1 < otherValues.length; c1++) {
+            for (int c1 = 0; c1 < vectorValue.mat.length; c1++) {
                 for (int r2 = 0; r2 < this.rows; r2++) {
                     for (int c2 = 0; c2 < this.cols; c2++) {
-                        resultValues[r2][c1 * this.cols + c2] = otherValues[c1] * values[r2][c2];
+                        resultValues[r2][c1 * this.cols + c2] = vectorValue.mat.data[c1] * mat.get(r2, c2);
                     }
                 }
             }
         } else {
-            for (int r1 = 0; r1 < otherValues.length; r1++) {
+            for (int r1 = 0; r1 < vectorValue.mat.length; r1++) {
                 for (int r2 = 0; r2 < this.rows; r2++) {
                     for (int c2 = 0; c2 < this.cols; c2++) {
-                        resultValues[r1 * this.rows + r2][c2] = otherValues[r1] * values[r2][c2];
+                        resultValues[r1 * this.rows + r2][c2] = vectorValue.mat.data[r1] * mat.get(r2, c2);
                     }
                 }
             }
         }
-        return result;
+        return new MatrixValue(resultValues);
     }
 
     @Override
@@ -378,20 +331,18 @@ public class MatrixValue extends Value {
         int rows = this.rows * otherValue.rows;
         int cols = this.cols * otherValue.cols;
 
-        MatrixValue result = new MatrixValue(rows, cols);
-        double[][] resultValues = result.values;
-        double[][] otherValues = otherValue.values;
+        double[][] resultValues = new double[rows][cols];
 
         for (int r1 = 0; r1 < otherValue.rows; r1++) {
             for (int c1 = 0; c1 < otherValue.cols; c1++) {
                 for (int r2 = 0; r2 < this.rows; r2++) {
                     for (int c2 = 0; c2 < this.cols; c2++) {
-                        resultValues[r1 * this.rows + r2][c1 * this.cols + c2] = otherValues[r1][c1] * values[r2][c2];
+                        resultValues[r1 * this.rows + r2][c1 * this.cols + c2] = otherValue.mat.get(r1, c1) * mat.get(r2, c2);
                     }
                 }
             }
         }
-        return result;
+        return new MatrixValue(resultValues);
     }
 
     @Override
@@ -406,32 +357,20 @@ public class MatrixValue extends Value {
 
     @Override
     protected Value elementDivideBy(ScalarValue value) {
-        MatrixValue clone = this.clone();
-        double value1 = value.value;
-        for (int i = 0; i < clone.rows; i++) {
-            for (int j = 0; j < clone.cols; j++) {
-                clone.values[i][j] /= value1;
-            }
-        }
-        return clone;
+        return new MatrixValue(mat.div(value.value), rows, cols);
     }
 
     @Override
     protected Value elementDivideBy(VectorValue value) {
         LOG.warning("Calculation vector element-wise division with matrix...");
-        if (rows != value.values.length) {
-            String err = "Matrix row length mismatch with vector length for multiplication" + rows + " vs." + value.values.length;
+        if (rows != value.mat.length) {
+            String err = "Matrix row length mismatch with vector length for multiplication" + rows + " vs." + value.mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        MatrixValue result = new MatrixValue(rows, cols);
-        double[][] resultValues = result.values;
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                resultValues[i][j] = value.values[j] / values[i][j];
-            }
-        }
-        return result;
+
+        return new MatrixValue(mat.rdiv(value.mat), rows, cols);
+
     }
 
     @Override
@@ -441,14 +380,7 @@ public class MatrixValue extends Value {
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        MatrixValue result = value.clone();
-        double[][] lhs = result.values;
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                lhs[i][j] /= values[i][j];
-            }
-        }
-        return result;
+        return new MatrixValue(mat.rdiv(value.mat), rows, cols);
     }
 
     @Override
@@ -469,14 +401,7 @@ public class MatrixValue extends Value {
 
     @Override
     protected MatrixValue plus(ScalarValue value) {
-        MatrixValue clone = clone();
-        double value1 = value.value;
-        for (int i = 0; i < clone.rows; i++) {
-            for (int j = 0; j < clone.cols; j++) {
-                clone.values[i][j] += value1;
-            }
-        }
-        return clone;
+        return new MatrixValue(mat.add(value.value), rows, cols);
     }
 
     @Override
@@ -491,15 +416,7 @@ public class MatrixValue extends Value {
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        MatrixValue result = new MatrixValue(rows, cols);
-        double[][] resultValues = result.values;
-        double[][] otherValues = value.values;
-        for (int i = 0; i < result.rows; i++) {
-            for (int j = 0; j < result.cols; j++) {
-                resultValues[i][j] = this.values[i][j] + otherValues[i][j];
-            }
-        }
-        return result;
+        return new MatrixValue(value.mat.add(mat), rows, cols);
     }
 
     @Override
@@ -520,15 +437,7 @@ public class MatrixValue extends Value {
 
     @Override
     protected Value minus(ScalarValue value) {
-        MatrixValue result = new MatrixValue(rows, cols);
-        double[][] resultValues = result.values;
-        double value1 = value.value;
-        for (int i = 0; i < result.rows; i++) {
-            for (int j = 0; j < result.cols; j++) {
-                resultValues[i][j] = value1 - values[i][j];
-            }
-        }
-        return result;
+        return new MatrixValue(mat.rsub(value.value), rows, cols);
     }
 
     @Override
@@ -544,15 +453,7 @@ public class MatrixValue extends Value {
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        MatrixValue result = new MatrixValue(rows, cols);
-        double[][] resultValues = result.values;
-        double[][] otherValues = value.values;
-        for (int i = 0; i < result.rows; i++) {
-            for (int j = 0; j < result.cols; j++) {
-                resultValues[i][j] = otherValues[i][j] - this.values[i][j];
-            }
-        }
-        return result;
+        return new MatrixValue(mat.rsub(value.mat), rows, cols);
     }
 
     @Override
@@ -606,12 +507,7 @@ public class MatrixValue extends Value {
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        double[][] otherValues = value.values;
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                otherValues[i][j] += values[i][j];
-            }
-        }
+        value.mat.addi(mat);
     }
 
     @Override
@@ -645,12 +541,7 @@ public class MatrixValue extends Value {
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        double[][] otherValues = value.values;
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                otherValues[i][j] *= values[i][j];
-            }
-        }
+        value.mat.muli(mat);
     }
 
     @Override
@@ -674,7 +565,7 @@ public class MatrixValue extends Value {
         int greater = 0;
         for (int i = 0; i < rows; i++) {
             for (int j = 0; j < cols; j++) {
-                if (values[i][j] < maxValue.value) {
+                if (mat.get(i, j) < maxValue.value) {
                     greater++;
                 }
             }
@@ -698,7 +589,7 @@ public class MatrixValue extends Value {
         int greater = 0;
         for (int i = 0; i < rows; i++) {
             for (int j = 0; j < cols; j++) {
-                if (values[i][j] < maxValue.values[i][j]) {
+                if (mat.get(i, j) < maxValue.mat.get(i, j)) {
                     greater++;
                 }
             }
@@ -714,7 +605,7 @@ public class MatrixValue extends Value {
     @Override
     public boolean equals(Value obj) {
         if (obj instanceof MatrixValue) {
-            if (Arrays.deepEquals(values, ((MatrixValue) obj).values)) {
+            if (Arrays.equals(mat.data, ((MatrixValue) obj).mat.data)) {
                 return true;
             }
         }

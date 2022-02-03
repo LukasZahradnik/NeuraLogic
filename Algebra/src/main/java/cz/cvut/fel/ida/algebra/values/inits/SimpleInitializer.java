@@ -26,8 +26,8 @@ public class SimpleInitializer implements ValueInitializer {
 
     @Override
     public void initVector(VectorValue vector){
-        for (int i = 0; i < vector.values.length; i++) { //hope JIT will optimize this access to length
-            vector.values[i] = distribution.getDoubleValue();
+        for (int i = 0; i < vector.mat.length; i++) { //hope JIT will optimize this access to length
+            vector.mat.data[i] = distribution.getDoubleValue();
         }
     }
 
@@ -35,7 +35,7 @@ public class SimpleInitializer implements ValueInitializer {
     public void initMatrix(MatrixValue matrix){
         for (int i = 0; i < matrix.rows; i++) {
             for (int j = 0; j < matrix.cols; j++) {
-                matrix.values[i][j] = distribution.getDoubleValue();
+                matrix.mat.put(i, j, distribution.getDoubleValue());
             }
         }
     }

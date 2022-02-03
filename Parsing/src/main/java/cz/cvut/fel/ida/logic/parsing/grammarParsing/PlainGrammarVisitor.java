@@ -323,10 +323,10 @@ public class PlainGrammarVisitor extends GrammarVisitor {
                 } else if (dims.size() == 2) {
                     if (dims.get(0) == 1) {
                         value = new VectorValue(dims.get(1));
-                        ((VectorValue) value).rowOrientation = true;
+                        ((VectorValue) value).setRowOrientation(true);
                     } else if (dims.get(1) == 1) {
                         value = new VectorValue(dims.get(0));
-                        ((VectorValue) value).rowOrientation = false;
+                        ((VectorValue) value).setRowOrientation(false);
                     } else
                         value = new MatrixValue(dims.get(0), dims.get(1));
                 }

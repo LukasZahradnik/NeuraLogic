@@ -31,8 +31,8 @@ public class Crossentropy implements ErrorFcn {
             VectorValue outputV = (VectorValue) output;
             VectorValue targetV = (VectorValue) target;
             double err = 0;
-            for (int i = 0; i < outputV.values.length; i++) { // full loop to account possibly even for multiple labels at the same time
-                err -= targetV.values[i] * (outputV.values[i] > 0 ? Math.log(outputV.values[i]) : -MAXENTVALUE);
+            for (int i = 0; i < outputV.mat.length; i++) { // full loop to account possibly even for multiple labels at the same time
+                err -= targetV.mat.data[i] * (outputV.mat.data[i] > 0 ? Math.log(outputV.mat.data[i]) : -MAXENTVALUE);
             }
             return new ScalarValue(err);
         }
@@ -49,12 +49,12 @@ public class Crossentropy implements ErrorFcn {
         } else {    // general crossentropy
             VectorValue outputV = (VectorValue) output;
             VectorValue targetV = (VectorValue) target;
-            double[] grad = new double[outputV.values.length];
-            for (int i = 0; i < outputV.values.length; i++) {
-                if (targetV.values[i] > 0.5) {
-                    grad[i] = outputV.values[i] > 0? 1 / outputV.values[i] : MAXENTGRADIENT;
+            double[] grad = new double[outputV.mat.length];
+            for (int i = 0; i < outputV.mat.length; i++) {
+                if (targetV.mat.data[i] > 0.5) {
+                    grad[i] = outputV.mat.data[i] > 0? 1 / outputV.mat.data[i] : MAXENTGRADIENT;
                 } else {
-                    grad[i] = outputV.values[i] < 1? -1 / (1 - outputV.values[i]): -MAXENTGRADIENT;
+                    grad[i] = outputV.mat.data[i] < 1? -1 / (1 - outputV.mat.data[i]): -MAXENTGRADIENT;
                 }
             }
             return new VectorValue(grad);

@@ -182,7 +182,7 @@ public class ClassificationResults extends RegressionResults {
             }
             int maxInd = evaluation.getOutput().getMaxInd();
             if (evaluation.getTarget().getMaxInd() == maxInd) {
-                if (((VectorValue) evaluation.getOutput()).values[maxInd] != 0.0) { //this (default) output doesn't count as a prediction
+                if (((VectorValue) evaluation.getOutput()).mat.data[maxInd] != 0.0) { //this (default) output doesn't count as a prediction
                     goodCount++;
                 } else {
 //                    System.out.println();
@@ -197,7 +197,7 @@ public class ClassificationResults extends RegressionResults {
             int maxInd = entry.getKey().getMaxInd();
 
             VectorValue value = (VectorValue) entry.getValue();
-            double norm = value.values[maxInd] / classCounts.get(entry.getKey());   //normalize the accumulated predicted value for the correct target class
+            double norm = value.mat.data[maxInd] / classCounts.get(entry.getKey());   //normalize the accumulated predicted value for the correct target class
             dispersion += norm;
         }
         dispersion /= classCounts.size();   //normalize over the number of classes (so that max disp. == 1)

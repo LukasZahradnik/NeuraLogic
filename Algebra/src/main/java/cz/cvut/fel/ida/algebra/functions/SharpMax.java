@@ -72,7 +72,7 @@ public class SharpMax extends Activation {
      */
     public Value getMaxValue(List<Value> inputs) {
         if (inputs.size() == 1 && inputs.get(0) instanceof VectorValue) {
-            return new VectorValue(getMaxValue(((VectorValue) inputs.get(0)).values));
+            return new VectorValue(getMaxValue(((VectorValue) inputs.get(0)).mat.data));
         }
 
         Value max = new ScalarValue(Double.MIN_VALUE);

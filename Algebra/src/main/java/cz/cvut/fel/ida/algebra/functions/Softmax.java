@@ -27,7 +27,7 @@ public class Softmax extends Activation implements XMax {
     public Value evaluate(Value summedInputs) {
         if (summedInputs instanceof VectorValue) {
             VectorValue inputVector = (VectorValue) summedInputs;
-            double[] probabilities = getProbabilities(inputVector.values);
+            double[] probabilities = getProbabilities(inputVector.mat.data);
             return new VectorValue(probabilities);
         } else {
             throw new ClassCastException("Trying to apply softmax on something else than a Vector...");
@@ -37,7 +37,7 @@ public class Softmax extends Activation implements XMax {
     public Value differentiate(Value summedInputs) {
         if (summedInputs instanceof VectorValue) {
             VectorValue inputVector = (VectorValue) summedInputs;
-            double[] exps = getProbabilities(inputVector.values);
+            double[] exps = getProbabilities(inputVector.mat.data);
             double[][] diffs = getGradient(exps);
             return new MatrixValue(diffs);
         } else {
@@ -92,7 +92,7 @@ public class Softmax extends Activation implements XMax {
 
     public double[] getProbabilities(List<Value> inputs) {
         if (inputs.size() == 1 && inputs.get(0) instanceof VectorValue) {
-            return getProbabilities(((VectorValue) inputs.get(0)).values);
+            return getProbabilities(((VectorValue) inputs.get(0)).mat.data);
         }
 
         double expsum = 0;

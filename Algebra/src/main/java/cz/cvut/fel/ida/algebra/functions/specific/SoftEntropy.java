@@ -36,8 +36,8 @@ public class SoftEntropy implements ErrorFcn {
             }
             return new ScalarValue(z);
         } else {    // general (vector) crossentropy
-            double[] logitV = ((VectorValue) logit).values;
-            double[] targetV = ((VectorValue) target).values;
+            double[] logitV = ((VectorValue) logit).mat.data;
+            double[] targetV = ((VectorValue) target).mat.data;
 
             double[] exps = softmax(logitV);
 
@@ -58,11 +58,11 @@ public class SoftEntropy implements ErrorFcn {
             VectorValue outputV = (VectorValue) logit;
             VectorValue targetV = (VectorValue) target;
 
-            double[] exps = softmax(outputV.values);
+            double[] exps = softmax(outputV.mat.data);
 
-            double[] grad = new double[outputV.values.length];
-            for (int i = 0; i < outputV.values.length; i++) {
-                grad[i] = targetV.values[i] - exps[i];   // nice simplification w.r.t. separate softmax+Xent
+            double[] grad = new double[outputV.mat.length];
+            for (int i = 0; i < outputV.mat.length; i++) {
+                grad[i] = targetV.mat.data[i] - exps[i];   // nice simplification w.r.t. separate softmax+Xent
             }
             return new VectorValue(grad);
         }

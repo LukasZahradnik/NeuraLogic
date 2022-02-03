@@ -1,6 +1,8 @@
 package cz.cvut.fel.ida.algebra.values;
 
 import cz.cvut.fel.ida.algebra.values.inits.ValueInitializer;
+import org.jblas.DoubleMatrix;
+import org.jblas.SimpleBlas;
 import org.jetbrains.annotations.NotNull;
 
 import java.text.NumberFormat;
@@ -19,7 +21,7 @@ public class VectorValue extends Value {
     /**
      * The actual vector of values
      */
-    public double[] values;
+    public DoubleMatrix mat;
 
     /**
      * Information about orientation/transposition
@@ -27,30 +29,50 @@ public class VectorValue extends Value {
     public boolean rowOrientation = false;
 
     public VectorValue(int size) {
-        values = new double[size];
+        mat = new DoubleMatrix(size);
+        mat.reshape(rows(), cols());
+    }
+
+    public VectorValue(DoubleMatrix matrix) {
+        mat = matrix;
+        mat.reshape(rows(), cols());
+    }
+
+    public VectorValue(DoubleMatrix matrix, boolean rowOrientation) {
+        this.rowOrientation = rowOrientation;
+        mat = matrix;
+        mat.reshape(rows(), cols());
     }
 
     public VectorValue(List<Double> vector) {
-        values = vector.stream().mapToDouble(d -> d).toArray();
+        mat = new DoubleMatrix(vector.stream().mapToDouble(d -> d).toArray());
+        mat.reshape(rows(), cols());
     }
 
     public VectorValue(int size, ValueInitializer valueInitializer) {
-        values = new double[size];
         initialize(valueInitializer);
+
+        mat = new DoubleMatrix(size);
+        mat.reshape(rows(), cols());
     }
 
     public VectorValue(double[] values) {
-        this.values = values;
+        mat = new DoubleMatrix(values);
+        mat.reshape(rows(), cols());
     }
 
     public VectorValue(double[] values, boolean rowOrientation) {
-        this.values = values;
         this.rowOrientation = rowOrientation;
+
+        mat = new DoubleMatrix(values);
+        mat.reshape(rows(), cols());
     }
 
     public VectorValue(int size, boolean rowOrientation) {
-        values = new double[size];
         this.rowOrientation = rowOrientation;
+
+        mat = new DoubleMatrix(size);
+        mat.reshape(rows(), cols());
     }
 
 
@@ -58,7 +80,7 @@ public class VectorValue extends Value {
         if (rowOrientation) {
             return 1;
         } else {
-            return values.length;
+            return mat.length;
         }
     }
 
@@ -66,8 +88,13 @@ public class VectorValue extends Value {
         if (!rowOrientation) {
             return 1;
         } else {
-            return values.length;
+            return mat.length;
         }
+    }
+
+    public void setRowOrientation(boolean rowOrientation) {
+        this.rowOrientation = rowOrientation;
+        this.mat.reshape(rows(), cols());
     }
 
     @NotNull
@@ -81,12 +108,12 @@ public class VectorValue extends Value {
 
         @Override
         public boolean hasNext() {
-            return i < values.length;
+            return i < mat.length;
         }
 
         @Override
         public Double next() {
-            return values[i++];
+            return mat.get(i++);
         }
     }
 
@@ -97,78 +124,77 @@ public class VectorValue extends Value {
 
     @Override
     public VectorValue zero() {
-        for (int i = 0; i < values.length; i++) {
-            values[i] = 0;
+        for (int i = 0; i < mat.length; i++) {
+            mat.data[i] = 0;
         }
         return this;
     }
 
     @Override
     public VectorValue clone() {
-        VectorValue clone = new VectorValue(values.length);
-        clone.rowOrientation = rowOrientation;
-        for (int i = 0; i < clone.values.length; i++) {
-            clone.values[i] = this.values[i];
-        }
+        VectorValue clone = new VectorValue(mat.dup(), rowOrientation);
         return clone;
     }
 
     @Override
     public VectorValue getForm() {
-        VectorValue form = new VectorValue(values.length);
+        VectorValue form = new VectorValue(mat.length);
         form.rowOrientation = rowOrientation;
+        form.mat.reshape(form.cols(), form.rows());
+
         return form;
     }
 
     @Override
     public void transpose() {
         rowOrientation = !rowOrientation;
+        mat.reshape(cols(), rows());
     }
 
     @Override
     public Value transposedView() {
-        return new VectorValue(values, !rowOrientation);
+        return new VectorValue(mat.dup(), !rowOrientation);
     }
 
     @Override
     public int[] size() {
         if (rowOrientation) {
-            return new int[]{1, values.length};
+            return new int[]{1, mat.length};
         } else {
-            return new int[]{values.length, 1};
+            return new int[]{mat.length, 1};
         }
     }
 
     @Override
     public Value apply(Function<Double, Double> function) {
-        VectorValue result = new VectorValue(values.length);
-        double[] resultValues = result.values;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = function.apply(values[i]);
+        VectorValue result = new VectorValue(mat.length);
+
+        for (int i = 0; i < mat.length; i++) {
+            result.mat.put(i, function.apply(mat.get(i)));
         }
         return result;
     }
 
     @Override
     public double get(int i) {
-        return values[i];
+        return mat.data[i];
     }
 
     @Override
     public void set(int i, double value) {
-        values[i] = value;
+        mat.data[i] = value;
     }
 
     @Override
     public void increment(int i, double value) {
-        values[i] += value;
+        mat.data[i] += value;
     }
 
     @Override
     public String toString(NumberFormat numberFormat) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < values.length; i++) {
-            sb.append(",").append(numberFormat.format(values[i]));
+        for (int i = 0; i < mat.length; i++) {
+            sb.append(",").append(numberFormat.format(mat.data[i]));
         }
         sb.replace(0, 1, "[");
         sb.append("]");
@@ -188,12 +214,7 @@ public class VectorValue extends Value {
 
     @Override
     protected VectorValue times(ScalarValue value) {
-        VectorValue result = this.getForm();
-        double[] resultValues = result.values;
-        double otherValue = value.value;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = values[i] * otherValue;
-        }
+        VectorValue result = new VectorValue(mat.mul(value.value), this.rowOrientation);
         return result;
     }
 
@@ -205,25 +226,18 @@ public class VectorValue extends Value {
      */
     @Override
     protected Value times(VectorValue value) {
-        if (value.rowOrientation && !this.rowOrientation && value.values.length == values.length) {
-            ScalarValue result = new ScalarValue(0);
-            double resultValue = 0;
-            double[] otherValues = value.values;
-            for (int i = 0; i < values.length; i++) {
-                resultValue += values[i] * otherValues[i];
-            }
-            result.value = resultValue;
-            return result;
+        if (value.rowOrientation && !this.rowOrientation && value.mat.length == mat.length) {
+            return new ScalarValue(mat.dot(value.mat));
         } else if (!value.rowOrientation && this.rowOrientation) {
             LOG.finest(() -> "Performing vector x vector matrix multiplication.");
-            MatrixValue result = new MatrixValue(value.values.length, values.length);
-            double[][] resultValues = result.values;
-            for (int i = 0; i < value.values.length; i++) {
-                for (int j = 0; j < values.length; j++) {
-                    resultValues[i][j] = value.values[i] * values[j];
+            double[][] resultValues = new double[value.mat.length][mat.length];
+            for (int i = 0; i < value.mat.length; i++) {
+                for (int j = 0; j < mat.length; j++) {
+                    resultValues[i][j] = value.mat.data[i] * mat.data[j];
                 }
             }
-            return result;
+
+            return new MatrixValue(resultValues);
         } else {
             String err = "Incompatible dimensions for vector multiplication: " + Arrays.toString(value.size()) + " vs " + Arrays.toString(size()) + " (try transposition)";
             LOG.severe(err);
@@ -242,8 +256,8 @@ public class VectorValue extends Value {
      */
     @Override
     protected VectorValue times(MatrixValue value) {
-        if (value.cols != values.length) {
-            String err = "Matrix row length mismatch with vector length for multiplication: " + value.cols + " vs." + values.length;
+        if (value.cols != mat.length) {
+            String err = "Matrix row length mismatch with vector length for multiplication: " + value.cols + " vs." + mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
@@ -251,14 +265,17 @@ public class VectorValue extends Value {
             LOG.severe("Multiplying matrix with a row-oriented vector!");
             throw new ArithmeticException("Multiplying matrix with a row-oriented vector!");
         }
-        VectorValue result = new VectorValue(value.rows);
-        double[] resultValues = result.values;
-        double[][] matrixValues = value.values;
-        for (int i = 0; i < value.rows; i++) {
-            for (int j = 0; j < value.cols; j++) {
-                resultValues[i] += matrixValues[i][j] * this.values[j];
-            }
-        }
+
+        this.mat.reshape(rows(), cols());
+
+        VectorValue result = new VectorValue(value.mat.mmul(this.mat));
+        System.out.println("---");
+        System.out.println(result.mat);
+        DoubleMatrix res = new DoubleMatrix(rows());
+
+        System.out.println(SimpleBlas.gemm(1.0, value.mat, mat, 0.0, res));
+
+
         return result;
     }
 
@@ -274,48 +291,36 @@ public class VectorValue extends Value {
 
     @Override
     protected Value elementTimes(ScalarValue value) {
-        VectorValue result = this.getForm();
-        double[] resultValues = result.values;
-        double otherValue = value.value;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = values[i] * otherValue;
-        }
-        return result;
+        return new VectorValue(mat.mul(value.value), rowOrientation);
     }
 
     @Override
     protected Value elementTimes(VectorValue value) {
-        if (value.values.length != values.length) {
-            String err = "Vector elementTimes dimension mismatch: " + value.values.length + " vs." + values.length;
+        if (value.mat.length != mat.length) {
+            String err = "Vector elementTimes dimension mismatch: " + value.mat.length + " vs." + mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        VectorValue result = value.getForm();
-        double[] resultValues = result.values;
-        double[] otherValues = value.values;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = values[i] * otherValues[i];
-        }
-        return result;
+
+        return new VectorValue(mat.mul(value.mat), rowOrientation);
     }
 
     @Override
     protected Value elementTimes(MatrixValue value) {
         LOG.warning("Calculation matrix element-wise product with vector...");
-        if (value.cols != values.length) {
-            String err = "Matrix elementTimes vector broadcast dimension mismatch: " + value.cols + " vs." + values.length;
+        if (value.cols != mat.length) {
+            String err = "Matrix elementTimes vector broadcast dimension mismatch: " + value.cols + " vs." + mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        MatrixValue result = new MatrixValue(value.rows, value.cols);
-        double[][] resultValues = result.values;
-        double[][] matrixValues = value.values;
+        double[][] resultValues = new double[value.rows][value.cols];
+
         for (int i = 0; i < value.rows; i++) {
             for (int j = 0; j < value.cols; j++) {
-                resultValues[i][j] = matrixValues[i][j] * this.values[j];
+                resultValues[i][j] = value.mat.get(i, j) * this.mat.data[j];
             }
         }
-        return result;
+        return new MatrixValue(resultValues);
     }
 
     @Override
@@ -330,13 +335,7 @@ public class VectorValue extends Value {
 
     @Override
     protected Value kroneckerTimes(ScalarValue value) {
-        VectorValue result = this.getForm();
-        double[] resultValues = result.values;
-        double otherValue = value.value;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = values[i] * otherValue;
-        }
-        return result;
+        return new VectorValue(mat.mul(value.value), rowOrientation);
     }
 
     @Override
@@ -345,33 +344,31 @@ public class VectorValue extends Value {
         int cols = cols() * value.cols();
 
         if (rows == 1 || cols == 1) {
-            VectorValue result = new VectorValue(rows * cols, rows == 1);
-            double[] resultValues = result.values;
-            double[] otherValues = value.values;
-            for (int i = 0; i < otherValues.length; i++) {
-                for (int j = 0; j < values.length; j++) {
-                    resultValues[i * values.length + j] = otherValues[i] * values[j];
+            double[] resultValues = new double[rows * cols];
+
+            for (int i = 0; i < value.mat.length; i++) {
+                for (int j = 0; j < mat.length; j++) {
+                    resultValues[i * mat.length + j] = value.mat.data[i] * mat.data[j];
                 }
             }
-            return result;
+            return new VectorValue(resultValues, rows == 1);
         } else {
-            MatrixValue result = new MatrixValue(rows, cols);
-            double[][] resultValues = result.values;
-            double[] otherValues = value.values;
+            double[][] resultValues = new double[rows][cols];
+
             if (rowOrientation) {
-                for (int i = 0; i < otherValues.length; i++) {
-                    for (int j = 0; j < values.length; j++) {
-                        resultValues[i][j] = otherValues[i] * values[j];
+                for (int i = 0; i < value.mat.length; i++) {
+                    for (int j = 0; j < mat.length; j++) {
+                        resultValues[i][j] = value.mat.data[i] * mat.data[j];
                     }
                 }
             } else {
-                for (int i = 0; i < otherValues.length; i++) {
-                    for (int j = 0; j < values.length; j++) {
-                        resultValues[j][i] = otherValues[i] * values[j];
+                for (int i = 0; i < value.mat.length; i++) {
+                    for (int j = 0; j < mat.length; j++) {
+                        resultValues[j][i] = value.mat.data[i] * mat.data[j];
                     }
                 }
             }
-            return result;
+            return new MatrixValue(resultValues);
         }
     }
 
@@ -380,28 +377,25 @@ public class VectorValue extends Value {
         int rows = rows() * matrix.rows;
         int cols = cols() * matrix.cols;
 
-        MatrixValue result = new MatrixValue(rows, cols);
-        double[][] resultValues = result.values;
-        double[][] otherValues = matrix.values;
+        double[][] resultValues = new double[rows][cols];
         if (rowOrientation) {
             for (int r1 = 0; r1 < matrix.rows; r1++) {
                 for (int c1 = 0; c1 < matrix.cols; c1++) {
-                    for (int k = 0; k < values.length; k++) {
-                        resultValues[r1][c1 * values.length + k] = otherValues[r1][c1] * values[k];
+                    for (int k = 0; k < mat.length; k++) {
+                        resultValues[r1][c1 * mat.length + k] = matrix.mat.get(r1, c1) * mat.data[k];
                     }
                 }
             }
         } else {
             for (int r1 = 0; r1 < matrix.rows; r1++) {
                 for (int c1 = 0; c1 < matrix.cols; c1++) {
-                    for (int k = 0; k < values.length; k++) {
-                        resultValues[r1 * values.length + k][c1] = otherValues[r1][c1] * values[k];
+                    for (int k = 0; k < mat.length; k++) {
+                        resultValues[r1 * mat.length + k][c1] = matrix.mat.get(r1, c1) * mat.data[k];
                     }
                 }
             }
         }
-        return result;
-
+        return new MatrixValue(resultValues);
     }
 
     @Override
@@ -416,48 +410,28 @@ public class VectorValue extends Value {
 
     @Override
     protected Value elementDivideBy(ScalarValue value) {
-        VectorValue result = this.getForm();
-        double[] resultValues = result.values;
-        double otherValue = value.value;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = otherValue / values[i];
-        }
-        return result;
+        return new VectorValue(mat.rdiv(value.value), rowOrientation);
     }
 
     @Override
     protected Value elementDivideBy(VectorValue value) {
-        if (value.values.length != values.length) {
-            String err = "Vector elementTimes dimension mismatch: " + value.values.length + " vs." + values.length;
+        if (value.mat.length != mat.length) {
+            String err = "Vector elementTimes dimension mismatch: " + value.mat.length + " vs." + mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        VectorValue result = value.getForm();
-        double[] resultValues = result.values;
-        double[] otherValues = value.values;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = otherValues[i] / values[i];
-        }
-        return result;
+        return new VectorValue(mat.rdiv(value.mat), rowOrientation);
     }
 
     @Override
     protected Value elementDivideBy(MatrixValue value) {
         LOG.warning("Calculation matrix element-wise product with vector...");
-        if (value.cols != values.length) {
-            String err = "Matrix elementTimes vector broadcast dimension mismatch: " + value.cols + " vs." + values.length;
+        if (value.cols != mat.length) {
+            String err = "Matrix elementTimes vector broadcast dimension mismatch: " + value.cols + " vs." + mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        MatrixValue result = new MatrixValue(value.rows, value.cols);
-        double[][] resultValues = result.values;
-        double[][] matrixValues = value.values;
-        for (int i = 0; i < value.rows; i++) {
-            for (int j = 0; j < value.cols; j++) {
-                resultValues[i][j] = matrixValues[i][j] / values[j];
-            }
-        }
-        return result;
+        return new MatrixValue(mat.rdiv(value.mat), value.rows, value.cols);
     }
 
     @Override
@@ -478,29 +452,17 @@ public class VectorValue extends Value {
 
     @Override
     protected VectorValue plus(ScalarValue value) {
-        double other = value.value;
-        VectorValue result = this.getForm();
-        double[] resultValues = result.values;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = values[i] + other;
-        }
-        return result;
+        return new VectorValue(mat.add(value.value), rowOrientation);
     }
 
     @Override
     protected VectorValue plus(VectorValue value) {
-        if (value.values.length != values.length) {
-            String err = "Vector element plus dimension mismatch: " + value.values.length + " vs." + values.length;
+        if (value.mat.length != mat.length) {
+            String err = "Vector element plus dimension mismatch: " + value.mat.length + " vs." + mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        VectorValue result = value.getForm();
-        double[] resultValues = result.values;
-        double[] otherValues = value.values;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = values[i] + otherValues[i];
-        }
-        return result;
+        return new VectorValue(value.mat.add(mat), rowOrientation);
     }
 
     /**
@@ -532,29 +494,17 @@ public class VectorValue extends Value {
 
     @Override
     protected Value minus(ScalarValue value) {
-        double other = value.value;
-        VectorValue result = this.getForm();
-        double[] resultValues = result.values;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = other - values[i];
-        }
-        return result;
+        return new VectorValue(mat.rsub(value.value), rowOrientation);
     }
 
     @Override
     protected Value minus(VectorValue value) {
-        if (value.values.length != values.length) {
-            String err = "Vector minus dimension mismatch: " + value.values.length + " vs." + values.length;
+        if (value.mat.length != mat.length) {
+            String err = "Vector minus dimension mismatch: " + value.mat.length + " vs." + mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        VectorValue result = value.getForm();
-        double[] resultValues = result.values;
-        double[] otherValues = value.values;
-        for (int i = 0; i < values.length; i++) {
-            resultValues[i] = otherValues[i] - values[i];
-        }
-        return result;
+        return new VectorValue(mat.rsub(value.mat), rowOrientation);
     }
 
     @Override
@@ -594,15 +544,12 @@ public class VectorValue extends Value {
      */
     @Override
     protected void incrementBy(VectorValue value) {
-        if (value.values.length != values.length) {
-            String err = "Vector incrementBy dimension mismatch: " + value.values.length + " vs." + values.length;
+        if (value.mat.length != mat.length) {
+            String err = "Vector incrementBy dimension mismatch: " + value.mat.length + " vs." + mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        double[] otherValues = value.values;
-        for (int i = 0; i < otherValues.length; i++) {
-            otherValues[i] += values[i];
-        }
+        value.mat.addi(mat);
     }
 
     /**
@@ -637,15 +584,12 @@ public class VectorValue extends Value {
 
     @Override
     protected void elementMultiplyBy(VectorValue value) {
-        if (value.values.length != values.length) {
-            String err = "Vector multiplyBy dimension mismatch: " + value.values.length + " vs." + values.length;
+        if (value.mat.length != mat.length) {
+            String err = "Vector multiplyBy dimension mismatch: " + value.mat.length + " vs." + mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
-        double[] otherValues = value.values;
-        for (int i = 0; i < otherValues.length; i++) {
-            otherValues[i] *= values[i];
-        }
+        value.mat.muli(mat);
     }
 
     @Override
@@ -674,28 +618,28 @@ public class VectorValue extends Value {
     @Override
     protected boolean greaterThan(ScalarValue maxValue) {
         int greater = 0;
-        for (int i = 0; i < values.length; i++) {
-            if (maxValue.value > values[i]) {
+        for (int i = 0; i < mat.length; i++) {
+            if (maxValue.value > mat.data[i]) {
                 greater++;
             }
         }
-        return greater > values.length / 2;
+        return greater > mat.length / 2;
     }
 
     @Override
     protected boolean greaterThan(VectorValue maxValue) {
-        if (maxValue.values.length != values.length) {
-            String err = "Vector greaterThan dimension mismatch: " + maxValue.values.length + " vs." + values.length;
+        if (maxValue.mat.length != mat.length) {
+            String err = "Vector greaterThan dimension mismatch: " + maxValue.mat.length + " vs." + mat.length;
             LOG.severe(err);
             throw new ArithmeticException(err);
         }
         int greater = 0;
-        for (int i = 0; i < values.length; i++) {
-            if (maxValue.values[i] > values[i]) {
+        for (int i = 0; i < mat.length; i++) {
+            if (maxValue.mat.data[i] > mat.data[i]) {
                 greater++;
             }
         }
-        return greater > values.length / 2;
+        return greater > mat.length / 2;
     }
 
     @Override
@@ -712,7 +656,7 @@ public class VectorValue extends Value {
     @Override
     public boolean equals(Value obj) {
         if (obj instanceof VectorValue) {
-            if (Arrays.equals(values, ((VectorValue) obj).values)) {
+            if (Arrays.equals(mat.data, ((VectorValue) obj).mat.data)) {
                 return true;
             }
         }
@@ -723,8 +667,8 @@ public class VectorValue extends Value {
     @Override
     public int hashCode() {
         long hashCode = 1;
-        for (int i = 0; i < values.length; i++)
-            hashCode = 31 * hashCode + Double.valueOf(values[i]).hashCode();
+        for (int i = 0; i < mat.length; i++)
+            hashCode = 31 * hashCode + Double.valueOf(mat.data[i]).hashCode();
         return Long.hashCode(hashCode);
     }
 
@@ -734,11 +678,11 @@ public class VectorValue extends Value {
             return false;
         }
         VectorValue vectorValue = (VectorValue) obj;
-        if (vectorValue.values.length != values.length)
+        if (vectorValue.mat.length != mat.length)
             return false;
 
-        for (int i = 0; i < values.length; i++) {
-            if (values[i] != vectorValue.values[i])
+        for (int i = 0; i < mat.length; i++) {
+            if (mat.data[i] != vectorValue.mat.data[i])
                 return false;
         }
         return true;

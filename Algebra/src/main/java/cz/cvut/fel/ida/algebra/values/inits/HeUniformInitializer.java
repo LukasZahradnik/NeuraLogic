@@ -20,7 +20,7 @@ public class HeUniformInitializer extends GlorotUniformInitializer {  //sqrt(2. 
 
     protected double getLimit(VectorValue value) {
         if (value.rowOrientation) {
-            return Math.sqrt(6) / Math.sqrt(value.values.length);
+            return Math.sqrt(6) / Math.sqrt(value.mat.length);
         } else
             return Math.sqrt(6) / 1; //todo check this should be the fan_in (input) dimension
     }

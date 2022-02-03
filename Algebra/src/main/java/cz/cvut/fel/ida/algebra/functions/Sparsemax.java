@@ -70,7 +70,7 @@ public class Sparsemax extends Softmax {
 
     public double[] getProbabilities(List<Value> inputs) {
         if (inputs.size() == 1 && inputs.get(0) instanceof VectorValue) {
-            return getProbabilities(((VectorValue) inputs.get(0)).values);
+            return getProbabilities(((VectorValue) inputs.get(0)).mat.data);
         }
 
         double[] z_values = new double[inputs.size()];

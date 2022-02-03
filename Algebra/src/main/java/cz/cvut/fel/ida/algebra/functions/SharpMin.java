@@ -77,7 +77,7 @@ public class SharpMin extends Activation {
      */
     public Value getMinValue(List<Value> inputs) {
         if (inputs.size() == 1 && inputs.get(0) instanceof VectorValue) {
-            return new VectorValue(getMinValue(((VectorValue) inputs.get(0)).values));
+            return new VectorValue(getMinValue(((VectorValue) inputs.get(0)).mat.data));
         }
 
         Value min = new ScalarValue(Double.MAX_VALUE);
