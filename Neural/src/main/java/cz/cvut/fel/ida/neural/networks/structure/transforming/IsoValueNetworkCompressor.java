@@ -20,7 +20,6 @@ import cz.cvut.fel.ida.setup.Settings;
 import cz.cvut.fel.ida.utils.generic.Pair;
 import cz.cvut.fel.ida.utils.generic.Timing;
 
-import java.math.BigDecimal;
 import java.util.*;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -37,7 +36,8 @@ public class IsoValueNetworkCompressor implements NetworkReducing, NetworkMergin
     private transient ValueInitializer valueInitializer;
 
     public int repetitions;
-    public int decimals;
+
+    public long decimals;
 
     Timing timing;
 
@@ -51,7 +51,7 @@ public class IsoValueNetworkCompressor implements NetworkReducing, NetworkMergin
         this.invalidation = new IndependentNeuronProcessing(settings, new Invalidator(-1));
         this.evaluation = new Evaluation(settings, -1);
         this.repetitions = settings.isoValueInits;
-        this.decimals = settings.isoDecimals;
+        this.decimals = (long) Math.pow(10, settings.isoDecimals);
         this.timing = new Timing();
     }
 
@@ -314,10 +314,7 @@ public class IsoValueNetworkCompressor implements NetworkReducing, NetworkMergin
             Iterator<Double> iterator = value.iterator();
             int i = 0;
             while (iterator.hasNext()) {
-                Double next = iterator.next();
-                BigDecimal bigDecimal = new BigDecimal(next).setScale(decimals, BigDecimal.ROUND_HALF_UP);    // 10 decimal digits are about max precision, 15 are already not deterministic mess!
-                clone.set(i, bigDecimal.doubleValue());
-                i++;
+                clone.set(i++, ((double) ((long) (iterator.next() * decimals))) / decimals);
             }
             return clone;
         }
