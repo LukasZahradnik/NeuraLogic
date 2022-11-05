@@ -1,7 +1,6 @@
 package cz.cvut.fel.ida.neural.networks.computation.training.optimizers;
 
-import cz.cvut.fel.ida.algebra.values.ScalarValue;
-import cz.cvut.fel.ida.algebra.values.Value;
+import cz.cvut.fel.ida.algebra.values.*;
 import cz.cvut.fel.ida.algebra.weights.Weight;
 import cz.cvut.fel.ida.setup.Settings;
 
@@ -12,11 +11,9 @@ public class Adam implements Optimizer {
     private static final Logger LOG = Logger.getLogger(Adam.class.getName());
 
     public Value learningRate;
-    public ScalarValue beta1;
-    public ScalarValue beta2;
-    public ScalarValue epsilon;
-
-    private ScalarValue minusOne = new ScalarValue(-1);
+    public final double beta1;
+    public final double beta2;
+    public final double epsilon;
 
     public Adam(Value learningRate) {
         this(learningRate, 0.9, 0.999, 1e-8);
@@ -24,41 +21,54 @@ public class Adam implements Optimizer {
 
     public Adam(Value learningRate, double i_beta1, double i_beta2, double i_epsilon) {
         this.learningRate = learningRate;
-        this.beta1 = new ScalarValue(i_beta1);
-        this.beta2 = new ScalarValue(i_beta2);
-        this.epsilon = new ScalarValue(i_epsilon);
+        this.beta1 = i_beta1;
+        this.beta2 = i_beta2;
+        this.epsilon = i_epsilon;
     }
 
     public void performGradientStep(Collection<Weight> updatedWeights, Value[] gradients, int iteration) {
         //correction
-        final ScalarValue fix1 = new ScalarValue(1 / (1 - Math.pow(beta1.value, iteration)));
-        final ScalarValue fix2 = new ScalarValue(1 / (1 - Math.pow(beta2.value, iteration)));
-
-        final Value oneBeta1 = Value.ONE.minus(beta1);
-        final Value oneBeta2 = Value.ONE.minus(beta2);
-        final double eps = this.epsilon.value;
+        final double fix1 = 1 / (1 - Math.pow(beta1, iteration));
+        final double fix2 = 1 / (1 - Math.pow(beta2, iteration));
+        final double lr = ((ScalarValue) learningRate).value;
 
         for (Weight weight : updatedWeights) {
-            Value gradient = gradients[weight.index].times(minusOne);    //the gradient
+            if (weight.value instanceof ScalarValue) {
+                double velocity = ((ScalarValue) weight.velocity).value;
+                double momentum = ((ScalarValue) weight.momentum).value;
+                double gradient = ((ScalarValue) gradients[weight.index]).value;
 
-            Value gradientPower = gradient.elementTimes(gradient);
-            gradientPower.elementMultiplyBy(oneBeta2);
+                momentum = (momentum * beta1) - (gradient * (1 - beta1));
+                velocity = (velocity * beta2) + (gradient * gradient * (1 - beta2));
 
-            weight.velocity.elementMultiplyBy(beta2);
-            weight.velocity.incrementBy(gradientPower);
+                ((ScalarValue) weight.momentum).value = momentum;
+                ((ScalarValue) weight.velocity).value = velocity;
+                ((ScalarValue) weight.value).value += momentum * fix1 * (-1 / (Math.sqrt(velocity * fix2) + epsilon)) * lr;
 
-            gradient.elementMultiplyBy(oneBeta1);
-            weight.momentum.elementMultiplyBy(beta1);
-            weight.momentum.incrementBy(gradient);
+                continue;
+            }
 
-            Value v_corr = weight.momentum.times(fix1);
-            Value s_corr = weight.velocity.times(fix2);
+            double[] value, momentum, velocity, gradient;
 
-            //update
-            s_corr.applyInplace(val -> (-1 / (Math.sqrt(val) + eps)));
-            v_corr.elementMultiplyBy(s_corr);
-            v_corr.elementMultiplyBy(learningRate);
-            weight.value.incrementBy(v_corr);
+            if (weight.value instanceof VectorValue) {
+                value = ((VectorValue) weight.value).values;
+                momentum = ((VectorValue) weight.momentum).values;
+                velocity = ((VectorValue) weight.velocity).values;
+                gradient = ((VectorValue) gradients[weight.index]).values;
+            } else if (weight.value instanceof MatrixValue) {
+                value = ((MatrixValue) weight.value).values;
+                momentum = ((MatrixValue) weight.momentum).values;
+                velocity = ((MatrixValue) weight.velocity).values;
+                gradient = ((MatrixValue) gradients[weight.index]).values;
+            } else {
+                continue; // Maybe throw?
+            }
+
+            for (int i = 0; i < value.length; i++) {
+                momentum[i] = (momentum[i] * beta1) - (gradient[i] * (1 - beta1));
+                velocity[i] = (velocity[i] * beta2) + (gradient[i] * gradient[i] * (1 - beta2));
+                value[i] += momentum[i] * fix1 * (-1 / (Math.sqrt(velocity[i] * fix2) + epsilon)) * lr;
+            }
         }
 
     }
