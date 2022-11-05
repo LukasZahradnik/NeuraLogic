@@ -1774,8 +1774,7 @@ public class SubsumptionEngineJ2 {
      *
      */
     private class LowArityLiterals {
-
-        private VectorSet set = new VectorSet();
+        private final Map<String, int[]> map = new HashMap<>();
 
         private int maxArity;
 
@@ -1820,7 +1819,7 @@ public class SubsumptionEngineJ2 {
                     literal[k + 2] = literals[index + 2 + k];
                 }
 
-                set.add(literal);
+                map.put(Arrays.toString(literal), literal);
             }
         }
 
@@ -1845,7 +1844,7 @@ public class SubsumptionEngineJ2 {
                     auxBuffer[j + 2] = c.groundedValues[cliterals[i]];
                 }
             }
-            return set.contains(auxBuffer);
+            return map.containsKey(Arrays.toString(auxBuffer));
         }
     }
 
