@@ -27,6 +27,11 @@ public abstract class Value implements Iterable<Double>, Comparable<Value>, Seri
      */
     public abstract void initialize(ValueInitializer valueInitializer);
 
+
+    public abstract double[] getAsArray();
+
+    public abstract void setAsArray(double[] value);
+
     /**
      * Zero elementary values
      *

@@ -23,6 +23,16 @@ class Zero extends Value {
     }
 
     @Override
+    public double[] getAsArray() {
+        return new double[]{zero.value};
+    }
+
+    @Override
+    public void setAsArray(double[] value) {
+        LOG.warning("Trying to set value of constant ZERO");
+    }
+
+    @Override
     public Value zero() {
         return zero;
     }

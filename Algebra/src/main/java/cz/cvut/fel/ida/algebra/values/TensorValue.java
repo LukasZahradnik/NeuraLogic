@@ -30,6 +30,16 @@ public class TensorValue extends Value {
     }
 
     @Override
+    public double[] getAsArray() {
+        return new double[0];
+    }
+
+    @Override
+    public void setAsArray(double[] value) {
+
+    }
+
+    @Override
     public TensorValue zero() {
         for (int i = 0; i < tensor.values.length; i++) {
             tensor.values[i] = 0;

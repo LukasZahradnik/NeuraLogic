@@ -33,42 +33,24 @@ public class Adam implements Optimizer {
         final double lr = ((ScalarValue) learningRate).value;
 
         for (Weight weight : updatedWeights) {
-            if (weight.value instanceof ScalarValue) {
-                double velocity = ((ScalarValue) weight.velocity).value;
-                double momentum = ((ScalarValue) weight.momentum).value;
-                double gradient = ((ScalarValue) gradients[weight.index]).value;
+            final double[] value, momentum, velocity, gradient;
 
-                momentum = (momentum * beta1) - (gradient * (1 - beta1));
-                velocity = (velocity * beta2) + (gradient * gradient * (1 - beta2));
-
-                ((ScalarValue) weight.momentum).value = momentum;
-                ((ScalarValue) weight.velocity).value = velocity;
-                ((ScalarValue) weight.value).value += momentum * fix1 * (-1 / (Math.sqrt(velocity * fix2) + epsilon)) * lr;
-
-                continue;
-            }
-
-            double[] value, momentum, velocity, gradient;
-
-            if (weight.value instanceof VectorValue) {
-                value = ((VectorValue) weight.value).values;
-                momentum = ((VectorValue) weight.momentum).values;
-                velocity = ((VectorValue) weight.velocity).values;
-                gradient = ((VectorValue) gradients[weight.index]).values;
-            } else if (weight.value instanceof MatrixValue) {
-                value = ((MatrixValue) weight.value).values;
-                momentum = ((MatrixValue) weight.momentum).values;
-                velocity = ((MatrixValue) weight.velocity).values;
-                gradient = ((MatrixValue) gradients[weight.index]).values;
-            } else {
-                continue; // Maybe throw?
-            }
+            value = weight.value.getAsArray();
+            momentum = weight.momentum.getAsArray();
+            velocity = weight.velocity.getAsArray();
+            gradient = gradients[weight.index].getAsArray();
 
             for (int i = 0; i < value.length; i++) {
-                momentum[i] = (momentum[i] * beta1) - (gradient[i] * (1 - beta1));
-                velocity[i] = (velocity[i] * beta2) + (gradient[i] * gradient[i] * (1 - beta2));
+                final double grad = gradient[i];
+
+                momentum[i] = (momentum[i] * beta1) - (grad * (1 - beta1));
+                velocity[i] = (velocity[i] * beta2) + (grad * grad * (1 - beta2));
                 value[i] += momentum[i] * fix1 * (-1 / (Math.sqrt(velocity[i] * fix2) + epsilon)) * lr;
             }
+
+            weight.value.setAsArray(value);
+            weight.momentum.setAsArray(momentum);
+            weight.velocity.setAsArray(velocity);
         }
 
     }

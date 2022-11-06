@@ -83,6 +83,16 @@ public class MatrixValue extends Value {
     }
 
     @Override
+    public double[] getAsArray() {
+        return values;
+    }
+
+    @Override
+    public void setAsArray(double[] value) {
+        this.values = value;
+    }
+
+    @Override
     public MatrixValue zero() {
         Arrays.fill(values, 0);
         return this;

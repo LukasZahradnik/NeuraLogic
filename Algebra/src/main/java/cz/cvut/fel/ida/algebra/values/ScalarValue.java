@@ -58,6 +58,16 @@ public class ScalarValue extends Value {
     }
 
     @Override
+    public double[] getAsArray() {
+        return new double[]{value};
+    }
+
+    @Override
+    public void setAsArray(double[] value) {
+        this.value = value[0];
+    }
+
+    @Override
     public ScalarValue zero() {
         value = 0;
         return this;
