@@ -93,7 +93,7 @@ public class SubsumptionEngineJ2 {
 
     //this is for speed - so that we could just be checking integer identifiers
     private final static int alldiff = -1, neq = -2, eq = -3, leq = -4, lt = -5, geq = -6, gt = -7, maxcard = -8, in = -9,
-            anypred = -10, truepred = -11, falsepred = -12, next = -13, add = -14, sub = -15, mod = -16;
+            anypred = -10, truepred = -11, falsepred = -12, next = -13, add = -14, sub = -15, mod = -16, join = -17;
 
     public SubsumptionEngineJ2() {
         this.predicatesToIntegers.put(alldiff, SpecialVarargPredicates.ALLDIFF);
@@ -112,6 +112,7 @@ public class SubsumptionEngineJ2 {
         this.predicatesToIntegers.put(add, SpecialVarargPredicates.ADD);
         this.predicatesToIntegers.put(sub, SpecialVarargPredicates.SUB);
         this.predicatesToIntegers.put(mod, SpecialVarargPredicates.MOD);
+        this.predicatesToIntegers.put(join, SpecialVarargPredicates.JOIN);
         for (String specialBinaryPredicate : SpecialBinaryPredicates.SPECIAL_PREDICATES) {
             this.specialPredicateIds.add(this.predicatesToIntegers.valueToIndex(specialBinaryPredicate));
         }
@@ -572,8 +573,20 @@ public class SubsumptionEngineJ2 {
         double[] weights = new double[c.containedIn.length];
         int index = 0;
         for (IntegerSet containedIn : c.containedIn) {
-            weights[index] = containedIn.size();
-            weights[index] /= (double) c.variableDomains[index].size();
+            boolean isJoin = false;
+
+            for (int i : containedIn.values()) {
+                if (c.literals[i] == join && c.literals[i + c.literals[i + 1] + 2] == index) {
+                    isJoin = true;
+                    c.variableDomains[index] = IntegerSet.emptySet;
+                    break;
+                }
+            }
+
+            if (!isJoin) {
+                weights[index] = (double) containedIn.size() / c.variableDomains[index].size();
+            }
+
             index++;
         }
         double[] heuristic1 = new double[c.containedIn.length];
@@ -587,7 +600,7 @@ public class SubsumptionEngineJ2 {
         for (int ci : c.containedIn[variableOrder.get(0)].values()) {
             for (int i = 0; i < c.literals[ci + 1]; i++) {
                 if (heuristic1[c.literals[ci + 3 + i]] != -1) {
-                    heuristic1[c.literals[ci + 3 + i]] += 1.0 * weights[c.literals[ci + 3 + i]];
+                    heuristic1[c.literals[ci + 3 + i]] += weights[c.literals[ci + 3 + i]];
                 }
             }
         }
@@ -606,7 +619,7 @@ public class SubsumptionEngineJ2 {
                             //todo - handle separately special predicateNames and negations
                             count = 1e8;
                         }
-                        heuristic1[c.literals[ci + 3 + j]] += 1.0 * weights[c.literals[ci + 3 + j]] / count;
+                        heuristic1[c.literals[ci + 3 + j]] += weights[c.literals[ci + 3 + j]] / count;
                     }
                 }
             }
@@ -1713,6 +1726,53 @@ public class SubsumptionEngineJ2 {
 
                     return false;
                 }
+
+                return true;
+            case join:
+                for (int i = index + 3; i < index + cliterals[index + 1] + 3 - 1; i++) {
+                    if (grounding[cliterals[i]] == -1) {
+                        return true;
+                    }
+                }
+
+                if (grounding[cliterals[index + cliterals[index + 1] + 3 - 1]] != -1) {
+                    Term arg1 = termsToIntegers.indexToValue(grounding[cliterals[index + cliterals[index + 1] + 3 - 1]]);
+                    if (!(arg1 instanceof Constant)) {
+                        return false;
+                    }
+
+                    String[] val = arg1.name().split(",");
+
+                    if (val.length != cliterals[index + 1] - 1) {
+                        return false;
+                    }
+
+                    for (int i = 0; i < val.length; i++) {
+                        Term arg = termsToIntegers.indexToValue(grounding[cliterals[index + 3 + i]]);
+                        if (!(arg instanceof Constant)) {
+                            return false;
+                        }
+
+                        if (!val[i].equals(arg.name())) {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                }
+
+                String[] vals = new String[cliterals[index + 1] - 1];
+                for (int i = index + 3; i < index + cliterals[index + 1] + 3 - 1; i++) {
+                    vals[i - index - 3] = termsToIntegers.indexToValue(grounding[cliterals[i]]).name();
+                }
+
+                Constant list = Constant.construct(String.join(",", vals));
+                int[] values = c.variableDomains[cliterals[index + cliterals[index + 1] + 3 - 1]].values();
+                int[] newValues = new int[values.length + 1];
+                System.arraycopy(values, 0, newValues, 0, values.length);
+                newValues[newValues.length - 1] = termsToIntegers.valueToIndex(list);
+
+                c.variableDomains[cliterals[index + cliterals[index + 1] + 3 - 1]] = IntegerSet.createIntegerSet(newValues);
 
                 return true;
         }
