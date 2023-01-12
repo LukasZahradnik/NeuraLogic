@@ -39,16 +39,6 @@ public class VariableFactory {
         return result;
     }
 
-    public Variable construct(String from, String type) {
-        Variable result = str2var.get(from);
-        if (result == null) {
-            result = Variable.construct(from, type);
-            str2var.put(from, result);
-            var2var.put(result, result);
-        }
-        return result;
-    }
-
     public Variable construct(Variable from) {
         Variable result = var2var.get(from);
         if (result == null){

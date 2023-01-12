@@ -554,6 +554,36 @@ public class SubsumptionEngineJ2 {
         return variableOrder(c, e, -1, ignoreSingletons);
     }
 
+    private boolean hasSpecialJoinPredicate(int[] literals) {
+        for (int i = 0; i < literals.length; i += literals[i + 1] + 3) {
+            if (literals[i] == join) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isJoinedVariable(int[] literals, int[] containedIn, int index) {
+        int notInJoins = 0;;
+
+        if (containedIn.length <= 2) {
+            return false;
+        }
+
+        for (int i : containedIn) {
+            if (literals[i] != join || literals[i + literals[i + 1] + 2] != index) {
+                notInJoins++;
+
+                if (notInJoins > 2) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     private int[] variableOrder(ClauseC c, ClauseE e, int fv, boolean ignoreSingletons) {
         if (c.containedIn.length == 0) {
             return new int[]{};
@@ -571,19 +601,15 @@ public class SubsumptionEngineJ2 {
         }
         List<Integer> variableOrder = new ArrayList<Integer>();
         double[] weights = new double[c.containedIn.length];
+        boolean hasJoinPredicate = hasSpecialJoinPredicate(c.literals);
+
         int index = 0;
         for (IntegerSet containedIn : c.containedIn) {
-            boolean isJoin = false;
+            boolean isJoinedVar = hasJoinPredicate && isJoinedVariable(c.literals, containedIn.values(), index);
 
-            for (int i : containedIn.values()) {
-                if (c.literals[i] == join && c.literals[i + c.literals[i + 1] + 2] == index) {
-                    isJoin = true;
-                    c.variableDomains[index] = IntegerSet.emptySet;
-                    break;
-                }
-            }
-
-            if (!isJoin) {
+            if (isJoinedVar) {
+                c.variableDomains[index] = IntegerSet.emptySet;
+            } else {
                 weights[index] = (double) containedIn.size() / c.variableDomains[index].size();
             }
 
@@ -1741,7 +1767,7 @@ public class SubsumptionEngineJ2 {
                         return false;
                     }
 
-                    String[] val = arg1.name().split(",");
+                    String[] val = arg1.name().split("\\|");
 
                     if (val.length != cliterals[index + 1] - 1) {
                         return false;
@@ -1766,9 +1792,10 @@ public class SubsumptionEngineJ2 {
                     vals[i - index - 3] = termsToIntegers.indexToValue(grounding[cliterals[i]]).name();
                 }
 
-                Constant list = Constant.construct(String.join(",", vals));
+                Constant list = Constant.construct(String.join("|", vals));
                 int[] values = c.variableDomains[cliterals[index + cliterals[index + 1] + 3 - 1]].values();
                 int[] newValues = new int[values.length + 1];
+
                 System.arraycopy(values, 0, newValues, 0, values.length);
                 newValues[newValues.length - 1] = termsToIntegers.valueToIndex(list);
 
