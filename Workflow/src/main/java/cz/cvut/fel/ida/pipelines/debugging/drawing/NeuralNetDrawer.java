@@ -22,6 +22,8 @@ import cz.cvut.fel.ida.utils.generic.Pair;
 
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.logging.Logger;
 
 /**
@@ -43,12 +45,14 @@ public class NeuralNetDrawer extends Drawer<NeuralSample> {
         this.neuronDrawer = new NeuronDrawer(sample.query.evidence, stateIndex, graphviz);
         this.bUpIterator = new Topologic((TopologicNetwork<State.Neural.Structure>) sample.query.evidence).new BUpIterator(sample.query.neuron, neuronDrawer);
 
-        this.graphviz.start_graph();
+        startStyledGraph();
         iterateNetwork();
         if (sample.query.neuron != null) {
-            this.graphviz.addln(sample.query.neuron.getIndex() + "[shape = tripleoctagon, xlabel=\"\n\n\ntarget = " + sample.target + "  \"]");
+            Map<String, String> targetAttributes = new LinkedHashMap<>();
+            targetAttributes.put("xlabel", "\n\n\ntarget = " + sample.target + "  ");
+            graphviz.addln(dot.node(sample.query.neuron.getIndex(), "", "targetNeuron", targetAttributes));
         }
-        this.graphviz.end_graph();
+        graphviz.end_graph();
     }
 
     private void iterateNetwork() {
@@ -69,63 +73,56 @@ public class NeuralNetDrawer extends Drawer<NeuralSample> {
         }
 
         private String getNeuronLabel(BaseNeuron neuron) {
-            String typeName = numberFormat != null ? neuron.getClass().getSimpleName() : "n";
+            boolean detailed = numberFormat != null && style.displayValues;
+            String typeName = detailed ? neuron.getClass().getSimpleName() : "n";
             String name = typeName + ":" + neuron.index + ":" + neuron.name;
             State.Neural.Computation state = neuron.getComputationView(stateVisitor.stateIndex);
-            String value = state.getValue().toString(NeuralNetDrawer.this.numberFormat);
-            Value stateGradient = state.getGradient();
-            String gradient = "";
-            if (stateGradient != null)
-                gradient = stateGradient.toString(NeuralNetDrawer.this.numberFormat);
-            String dimensions = Arrays.toString(state.getValue().size());
-            Combination neuronCombination;
-            Transformation neuronTransformation;
-            if (neuron instanceof FactNeuron) {
-                neuronCombination = null;
-                neuronTransformation = null;
-            } else {
+
+            Combination neuronCombination = null;
+            Transformation neuronTransformation = null;
+            if (!(neuron instanceof FactNeuron)) {
                 neuronCombination = neuron.getCombination();
                 neuronTransformation = neuron.getTransformation();
             }
-            String fcns = "";
-            if (neuronCombination != null)
-                fcns += neuronCombination.getName();
-            if (neuronTransformation != null)
-                fcns += "+" + neuronTransformation.getName();
 
             StringBuilder sb = new StringBuilder();
-            sb.append("\"");
-            sb.append(name).append("\n");
-            sb.append("val: ").append(value).append("\n");
-            sb.append("grad: ").append(gradient).append("\n");
-            sb.append("dim: ").append(dimensions).append("\n");
-            sb.append("fcn: ").append(fcns).append("\n");
-            sb.append("\"");
+            sb.append(name);
+            if (detailed && style.displayValues) {
+                sb.append("\nval: ").append(state.getValue().toString(numberFormat));
+            }
+            if (detailed && style.displayGradients) {
+                Value stateGradient = state.getGradient();
+                if (stateGradient != null) {
+                    sb.append("\ngrad: ").append(stateGradient.toString(numberFormat));
+                }
+            }
+            if (detailed && style.displayDimensions) {
+                sb.append("\ndim: ").append(Arrays.toString(state.getValue().size()));
+            }
+            if (detailed && style.displayFunctions) {
+                String fcns = "";
+                if (neuronCombination != null)
+                    fcns += neuronCombination.getName();
+                if (neuronTransformation != null)
+                    fcns += "+" + neuronTransformation.getName();
+                sb.append("\nfcn: ").append(fcns);
+            }
             return sb.toString();
         }
 
-        private String getEdgeLabel(int from, Integer to, Weight weight) {
-            StringBuilder sb = new StringBuilder();
-            sb.append(" [label=");
-            sb.append("\"");
-//            sb.append(weight.index).append(":");
-            sb.append(weight.name).append(":");
-//            sb.append(Arrays.toString(weight.value.size())).append(":");
-            sb.append(weight.value.toString(NeuralNetDrawer.this.numberFormat));
-            sb.append("\"");
-            if (weight.isFixed)
-                sb.append(", style=dashed ");
-            sb.append("]");
-            return sb.toString();
+        private String getEdgeLabel(Weight weight) {
+            if (!style.displayValues || !style.displayWeights) {
+                return "";
+            }
+            return weight.name + ":" + weight.value.toString(numberFormat);
         }
 
         private <T extends Neurons, S extends State.Neural> String getEdges(BaseNeuron<T, S> neuron) {
             Iterator<T> inputs = neuralNetwork.getInputs(neuron);
-            T input;
             StringBuilder sb = new StringBuilder();
             while (inputs.hasNext()) {
-                input = inputs.next();
-                sb.append(input.getIndex() + " -> " + neuron.index + " [style=dashed] ").append("\n");
+                T input = inputs.next();
+                sb.append(dot.edge(input.getIndex(), neuron.index, "unweightedInput", "")).append("\n");
             }
             return sb.toString();
         }
@@ -134,13 +131,12 @@ public class NeuralNetDrawer extends Drawer<NeuralSample> {
             Pair<Iterator<T>, Iterator<Weight>> inputs = neuralNetwork.getInputs(neuron);
             Iterator<T> inputNeurons = inputs.r;
             Iterator<Weight> inputWeights = inputs.s;
-            T input;
-            Weight weight;
             StringBuilder sb = new StringBuilder();
             while (inputNeurons.hasNext()) {
-                input = inputNeurons.next();
-                weight = inputWeights.next();
-                sb.append(input.getIndex() + " -> " + neuron.index + getEdgeLabel(neuron.index, input.getIndex(), weight)).append("\n");
+                T input = inputNeurons.next();
+                Weight weight = inputWeights.next();
+                String styleKey = weight.isFixed ? "fixedWeightInput" : "weightedInput";
+                sb.append(dot.edge(input.getIndex(), neuron.index, styleKey, getEdgeLabel(weight))).append("\n");
             }
             return sb.toString();
         }
@@ -157,44 +153,44 @@ public class NeuralNetDrawer extends Drawer<NeuralSample> {
 
         @Override
         public void visit(AtomNeuron neuron) {
-            gv.addln(neuron.index + " [shape=ellipse, color=blue, label=" + getNeuronLabel(neuron) + "]");
+            gv.addln(dot.node(neuron.index, getNeuronLabel(neuron), "atomNeuron"));
             gv.addln(getEdges(neuron));
         }
 
         @Override
         public void visit(NegationNeuron neuron) {
-            gv.addln(neuron.index + " [shape=ellipse, color=red, label=" + getNeuronLabel(neuron) + "]");
+            gv.addln(dot.node(neuron.index, getNeuronLabel(neuron), "negationNeuron"));
             gv.addln(getEdges(neuron));
         }
 
         @Override
         public void visit(WeightedAtomNeuron neuron) {
-            gv.addln(neuron.index + " [shape=ellipse, color=blue, label=" + getNeuronLabel(neuron) + "]");
+            gv.addln(dot.node(neuron.index, getNeuronLabel(neuron), "weightedAtomNeuron"));
             gv.addln(getEdges(neuron));
         }
 
         @Override
         public void visit(AggregationNeuron neuron) {
-            gv.addln(neuron.index + " [shape=box, color=green, label=" + getNeuronLabel(neuron) + "]");
+            gv.addln(dot.node(neuron.index, getNeuronLabel(neuron), "aggregationNeuron"));
             gv.addln(getEdges(neuron));
         }
 
         @Override
         public void visit(RuleNeuron neuron) {
-            gv.addln(neuron.index + " [shape=ellipse, color=red, label=" + getNeuronLabel(neuron) + "]");
+            gv.addln(dot.node(neuron.index, getNeuronLabel(neuron), "ruleNeuron"));
             gv.addln(getEdges(neuron));
         }
 
         @Override
         public void visit(WeightedRuleNeuron neuron) {
-            gv.addln(neuron.index + " [shape=ellipse, color=red, label=" + getNeuronLabel(neuron) + "]");
+            gv.addln(dot.node(neuron.index, getNeuronLabel(neuron), "weightedRuleNeuron"));
             gv.addln(getEdges(neuron));
         }
 
 
         @Override
         public void visit(FactNeuron neuron) {
-            gv.addln(neuron.index + " [shape=house, color=black, label=" + getNeuronLabel(neuron) + "]");
+            gv.addln(dot.node(neuron.index, getNeuronLabel(neuron), "factNeuron"));
             gv.addln();
         }
     }

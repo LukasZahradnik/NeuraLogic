@@ -4,10 +4,13 @@ import cz.cvut.fel.ida.setup.Settings;
 
 import java.awt.*;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -27,30 +30,20 @@ public class GraphViz {
     int height;
 
     /**
-     * The image size in dpi. 96 dpi is normal size. Higher values are 10% higher each.
-     * Lower values 10% lower each.
-     * <p>
-     * dpi patch by Peter Mueller
+     * Resolution used for raster output (and font sizing). 96 dpi is normal size.
+     * The value is configurable via {@link Settings#graphVizDpi}.
      */
-    private static final int[] dpiSizes = {46, 51, 57, 63, 70, 78, 86, 96, 106, 116, 128, 141, 155, 170, 187, 206, 226, 249};
-
+    private int dpi = 96;
 
     /**
      * Detects the client's operating system.
      */
     private static final String osName = System.getProperty("os.name").replaceAll("\\s", "");
 
-
-    /**
-     * Define the index in the image size array.
-     */
-    private int currentDpiPos = 7;
-
     private String fileName;
     public String algorithm;
     String imgtype;
     private boolean fix2ScreenSize;
-    private boolean storeImage;
 
     public String tempDir;
 
@@ -95,7 +88,7 @@ public class GraphViz {
         this.algorithm = settings.graphVizAlgorithm;
         this.imgtype = settings.imgType;
         this.fix2ScreenSize = settings.fix2ScreenSize;
-        this.storeImage = settings.storeNotShow;
+        this.dpi = settings.graphVizDpi > 0 ? settings.graphVizDpi : 96;
 
         try {
             gd = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
@@ -125,22 +118,18 @@ public class GraphViz {
      * Increase the image size (dpi).
      */
     public void increaseDpi() {
-        if (this.currentDpiPos < (this.dpiSizes.length - 1)) {
-            ++this.currentDpiPos;
-        }
+        this.dpi = Math.min(600, (int) Math.round(this.dpi * 1.1));
     }
 
     /**
      * Decrease the image size (dpi).
      */
     public void decreaseDpi() {
-        if (this.currentDpiPos > 0) {
-            --this.currentDpiPos;
-        }
+        this.dpi = Math.max(30, (int) Math.round(this.dpi / 1.1));
     }
 
     public int getImageDpi() {
-        return this.dpiSizes[this.currentDpiPos];
+        return this.dpi;
     }
 
 
@@ -177,20 +166,24 @@ public class GraphViz {
      */
     private String getPlainSource() throws IOException, InterruptedException {
         ProcessBuilder builder = new ProcessBuilder(executable, "-Tplain", "-K" + algorithm);
-        builder.redirectErrorStream(true); // This is important part
+        builder.redirectErrorStream(false);
         Process process = builder.start();
 
-        BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
-        bw.write(graph.toString());
-        bw.flush();
-        bw.close();
+        StreamGobbler errorGobbler = new StreamGobbler(process.getErrorStream());
+        errorGobbler.start();
 
-        return readInputTextStream(process.getInputStream());
+        writeDotToProcess(process, getDotSource());
+        String plain = readInputTextStream(process.getInputStream());
+
+        int exitCode = process.waitFor();
+        errorGobbler.join();
+        checkExitCode(exitCode, errorGobbler.asString());
+        return plain;
     }
 
     private String readInputTextStream(InputStream inputStream) throws IOException {
         StringBuilder sb = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 sb.append(line).append('\n');
@@ -554,73 +547,185 @@ public class GraphViz {
         dotEdgeAttributes.clear();
     }
 
-    private String getImageName(String name) {
-        return fileName + counter++ + "_" + name + "." + imgtype;
-    }
-
     private String getGraphName(String name) {
         return fileName + counter++ + "_" + name + "." + algorithm;
     }
 
     public void storeGraphSource(String name) throws IOException {
-        try {
-            File file = new File(getGraphName(name));
-            FileWriter fout = new FileWriter(file);
-            fout.write(getDotSource());
-            fout.close();
-        } catch (Exception e) {
-            LOG.severe(e.getMessage());
+        File file = new File(getGraphName(name));
+        File parent = file.getParentFile();
+        if (parent != null) {
+            parent.mkdirs();
+        }
+        try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            writer.write(getDotSource());
         }
     }
 
     /**
-     * Call Graphviz using IO streams, i.e. without creating any temporary files
+     * Renders the current graph directly into the given file. Graphviz writes the
+     * output itself, so large graphs are never buffered in memory by this class.
      *
-     * @return
-     * @throws IOException
-     * @throws InterruptedException
+     * @param outputFile destination file
+     * @throws IOException          if the file cannot be written or graphviz fails
+     * @throws InterruptedException if the calling thread is interrupted while waiting for graphviz
+     */
+    public void renderToFile(File outputFile) throws IOException, InterruptedException {
+        renderToFile(imgtype, algorithm, outputFile);
+    }
+
+    private void renderToFile(String type, String representationType, File outputFile) throws IOException, InterruptedException {
+        File parent = outputFile.getParentFile();
+        if (parent != null) {
+            parent.mkdirs();
+        }
+        Process process = startRender(type, representationType, fix2ScreenSize, outputFile);
+        StreamGobbler errorGobbler = new StreamGobbler(process.getErrorStream());
+        errorGobbler.start();
+
+        writeDotToProcess(process, getDotSource());
+        // `-o` keeps stdout empty; consume it anyway so the process can never block on a full pipe.
+        readAllBytes(process.getInputStream());
+
+        int exitCode = process.waitFor();
+        errorGobbler.join();
+        checkExitCode(exitCode, errorGobbler.asString());
+    }
+
+    /**
+     * Stores the graph as an image in the configured output directory, using the
+     * same file layout as {@link #writeImageToFile(byte[], String)}.
+     */
+    public void storeGraphImage(String name) throws IOException, InterruptedException {
+        renderToFile(imgtype, algorithm, getImageFile(name));
+    }
+
+    private File getImageFile(String name) {
+        return new File(tempDir == null ? "." : tempDir, sanitizeFileName(name) + "." + imgtype);
+    }
+
+    private String sanitizeFileName(String name) {
+        if (name == null || name.isEmpty()) {
+            return "graph";
+        }
+        return name.replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
+
+    /**
+     * Call Graphviz using IO streams, i.e. without creating any temporary files.
+     *
+     * @return the rendered image bytes
+     * @throws IOException          if graphviz cannot be started or fails
+     * @throws InterruptedException if the calling thread is interrupted while waiting for graphviz
      */
     public byte[] getGraphImage(String nameOrEmpty) throws IOException, InterruptedException {
-        String[] args = getArgs(nameOrEmpty);
+        return renderToBytes(getDotSource(), imgtype, algorithm);
+    }
+
+    /**
+     * Whether the configured image type can be decoded and shown by {@code ImageIO}
+     * (the Swing display path only supports raster formats).
+     */
+    public boolean isDisplayableType() {
+        String type = imgtype == null ? "" : imgtype.toLowerCase(Locale.ROOT);
+        return "png".equals(type) || "gif".equals(type) || "jpg".equals(type)
+                || "jpeg".equals(type) || "bmp".equals(type) || "wbmp".equals(type);
+    }
+
+    private byte[] renderToBytes(String dotSource, String type, String representationType) throws IOException, InterruptedException {
+        Process process = startRender(type, representationType, fix2ScreenSize, null);
+        StreamGobbler errorGobbler = new StreamGobbler(process.getErrorStream());
+        errorGobbler.start();
+
+        writeDotToProcess(process, dotSource);
+        byte[] image = readAllBytes(process.getInputStream());
+
+        int exitCode = process.waitFor();
+        errorGobbler.join();
+        checkExitCode(exitCode, errorGobbler.asString());
+        return image;
+    }
+
+    private Process startRender(String type, String representationType, boolean includeScreenSize, File outputFile) throws IOException {
+        List<String> args = new ArrayList<>();
+        args.add(executable);
+        args.add("-T" + type);
+        args.add("-K" + representationType);
+        args.add("-Gdpi=" + dpi);
+        if (includeScreenSize && fix2ScreenSize) {
+            args.add(sizeArgument());
+        }
+        if (outputFile != null) {
+            args.add("-o");
+            args.add(outputFile.getAbsolutePath());
+        }
 
         ProcessBuilder builder = new ProcessBuilder(args);
-        builder.redirectErrorStream(true); // This is important part
-        Process process = builder.start();
-
-        BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
-        bw.write(graph.toString()); //or better yet : toString().getBytes(Charset.forName("UTF-8"))
-        bw.flush();
-        bw.close();
-
-        //wait here?    - probably not, the outputstream does the waiting
-
-        byte[] bytes = readInputImageStream(process.getInputStream());
-        return bytes;
+        builder.redirectErrorStream(false);
+        return builder.start();
     }
 
-    private String[] getArgs(String name) {
-        ArrayList<String> args = new ArrayList<>();
-        args.add(executable);
-        args.add("-T" + imgtype);
-        args.add("-K" + algorithm);
-        args.add("-Gdpi=" + dpiSizes[this.currentDpiPos]);
-        if (fix2ScreenSize)
-            args.add("-Gsize=" + width / dpiSizes[this.currentDpiPos] + "," + height / dpiSizes[this.currentDpiPos] + "\\!");
-        if (storeImage)
-            args.add("-o " + getImageName(name));
-        return args.toArray(new String[args.size()]);
+    private String sizeArgument() {
+        double dpiValue = Math.max(1, dpi);
+        return String.format(Locale.ROOT, "-Gsize=%.4f,%.4f!", width / dpiValue, height / dpiValue);
     }
 
-    private byte[] readInputImageStream(InputStream inputStream) throws IOException {
+    private void writeDotToProcess(Process process, String dotSource) throws IOException {
+        try (Writer writer = new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8)) {
+            writer.write(dotSource);
+        }
+    }
+
+    private void checkExitCode(int exitCode, String errorOutput) throws IOException {
+        if (exitCode != 0) {
+            throw new IOException("Graphviz exited with code " + exitCode + ": " + errorOutput.trim());
+        }
+        if (!errorOutput.trim().isEmpty()) {
+            LOG.warning("Graphviz reported: " + errorOutput.trim());
+        }
+    }
+
+    private byte[] readAllBytes(InputStream inputStream) throws IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] data = new byte[64 * 1024];
         int nRead;
-        byte[] data = new byte[16384];
         while ((nRead = inputStream.read(data, 0, data.length)) != -1) {
             buffer.write(data, 0, nRead);
         }
-        buffer.flush();
-        buffer.close();
         return buffer.toByteArray();
+    }
+
+    private static class StreamGobbler extends Thread {
+        private final InputStream stream;
+        private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+
+        StreamGobbler(InputStream stream) {
+            super("graphviz-stderr-gobbler");
+            this.stream = stream;
+            setDaemon(true);
+        }
+
+        @Override
+        public void run() {
+            try {
+                byte[] data = new byte[64 * 1024];
+                int nRead;
+                while ((nRead = stream.read(data, 0, data.length)) != -1) {
+                    buffer.write(data, 0, nRead);
+                }
+            } catch (IOException ignored) {
+                // the process output stream is closed when the process exits
+            } finally {
+                try {
+                    stream.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+
+        String asString() {
+            return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
+        }
     }
 
     /**
@@ -641,20 +746,10 @@ public class GraphViz {
      * @return A byte array containing the image of the graph.
      */
     public byte[] getGraphUsingTemporaryFile(String dot_source, String type, String representationType) {
-        File dot;
-        byte[] img_stream = null;
-
         try {
-            dot = writeDotSourceToFile(dot_source);
-            if (dot != null) {
-                img_stream = getImgStream(dot, type, representationType);
-                if (dot.delete() == false) {
-                    System.err.println("Warning: " + dot.getAbsolutePath() + " could not be deleted!");
-                }
-                return img_stream;
-            }
-            return null;
-        } catch (java.io.IOException ioe) {
+            return renderToBytes(dot_source, type, representationType);
+        } catch (IOException | InterruptedException e) {
+            LOG.severe("Graphviz rendering failed: " + e.getMessage());
             return null;
         }
     }
@@ -667,8 +762,7 @@ public class GraphViz {
      * @return Success: 1, Failure: -1
      */
     public int writeImageToFile(byte[] img, String file) {
-        File to = new File(tempDir + "/" + sanitize(file) + "." + imgtype);
-        return writeImageToFile(img, to);
+        return writeImageToFile(img, getImageFile(file));
     }
 
     /**
@@ -679,94 +773,23 @@ public class GraphViz {
      * @return Success: 1, Failure: -1
      */
     public int writeImageToFile(byte[] img, File to) {
-        try {
-            FileOutputStream fos = new FileOutputStream(to);
-            fos.write(img);
-            fos.close();
-        } catch (java.io.IOException ioe) {
+        if (img == null) {
+            LOG.warning("No image data to write to " + to);
             return -1;
         }
-        return 1;
-    }
-
-    /**
-     * It will call the external dot program, and return the image in
-     * binary format.
-     *
-     * @param dot                Source of the graph (in dot language).
-     * @param type               Type of the output image to be produced, e.g.: gif, dot, fig, pdf, ps, svg, png.
-     * @param representationType Type of how you want to represent the graph:
-     *                           <ul>
-     *                           <li>dot</li>
-     *                           <li>neato</li>
-     *                           <li>fdp</li>
-     *                           <li>sfdp</li>
-     *                           <li>twopi</li>
-     *                           <li>circo</li>
-     *                           </ul>
-     *                           see http://www.graphviz.org under the Roadmap title
-     * @return The image of the graph in .gif format.
-     */
-    private byte[] getImgStream(File dot, String type, String representationType) {
-        File img;
-        byte[] img_stream = null;
-
         try {
-            img = File.createTempFile("graph_", "." + type, new File(this.tempDir));
-            Runtime rt = Runtime.getRuntime();
-
-            // patch by Mike Chenault
-            // representation type with -K argument by Olivier Duplouy
-            String[] args = {executable, "-T" + type, "-K" + representationType, "-Gdpi=" + dpiSizes[this.currentDpiPos], dot.getAbsolutePath(), "-o", img.getAbsolutePath()};
-
-            Process p = rt.exec(args);  //this is plain dangerous in multithreaded programs and repeated runs...
-            int i = p.waitFor();
-            if (i > 0) {
-                System.err.println(i);
+            File parent = to.getParentFile();
+            if (parent != null) {
+                parent.mkdirs();
             }
-
-            FileInputStream in = new FileInputStream(img.getAbsolutePath());
-            img_stream = new byte[in.available()];
-            in.read(img_stream);
-            // Close it if we need to
-            if (in != null) {
-                in.close();
+            try (FileOutputStream fos = new FileOutputStream(to)) {
+                fos.write(img);
             }
-
-            if (img.delete() == false) {
-                System.err.println("Warning: " + img.getAbsolutePath() + " could not be deleted!");
-            }
-        } catch (java.io.IOException ioe) {
-            System.err.println("Error:    in I/O processing of tempfile in dir " + tempDir + "\n");
-            System.err.println("       or in calling external command");
-            ioe.printStackTrace();
-        } catch (java.lang.InterruptedException ie) {
-            System.err.println("Error: the execution of the external program was interrupted");
-            ie.printStackTrace();
+            return 1;
+        } catch (IOException ioe) {
+            LOG.severe("Could not write image to " + to + ": " + ioe.getMessage());
+            return -1;
         }
-
-        return img_stream;
-    }
-
-    /**
-     * Writes the source of the graph in a file, and returns the written file
-     * as a File object.
-     *
-     * @param str Source of the graph (in dot language).
-     * @return The file (as a File object) that contains the source of the graph.
-     */
-    private File writeDotSourceToFile(String str) throws java.io.IOException {
-        File temp;
-        try {
-            temp = File.createTempFile("graph_", ".dot.tmp", new File(tempDir));
-            FileWriter fout = new FileWriter(temp);
-            fout.write(str);
-            fout.close();
-        } catch (Exception e) {
-            System.err.println("Error: I/O error while writing the dot source to temp file!");
-            return null;
-        }
-        return temp;
     }
 
     /**
@@ -818,10 +841,10 @@ public class GraphViz {
         try {
             FileInputStream fis = new FileInputStream(input);
             DataInputStream dis = new DataInputStream(fis);
-            BufferedReader br = new BufferedReader(new InputStreamReader(dis));
+            BufferedReader br = new BufferedReader(new InputStreamReader(dis, StandardCharsets.UTF_8));
             String line;
             while ((line = br.readLine()) != null) {
-                sb.append(line);
+                sb.append(line).append('\n');
             }
             dis.close();
         } catch (Exception e) {

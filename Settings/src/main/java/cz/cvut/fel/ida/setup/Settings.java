@@ -254,9 +254,20 @@ public class Settings implements Serializable {
         LOW, MEDIUM, HIGH
     }
 
+    /**
+     * Programmatic drawing style used by all {@code Drawer}s. Configure it directly
+     * from PyNeuraLogic, e.g. {@code settings.drawingStyle.valueDecimals = 4} or
+     * {@code settings.drawingStyle.nodeStyles.get("fact").put("fillcolor", "#fff2cc")}.
+     */
+    public DrawingStyle drawingStyle = new DrawingStyle();
+
     public String imageFile = outDir + "/graph";
     public String graphVizAlgorithm = "dot";
     public String imgType = "png";
+    /**
+     * Resolution (dpi) passed to Graphviz for rendering. 96 is the Graphviz default.
+     */
+    public int graphVizDpi = 96;
     /**
      * Whether the rendered image should be exactly in the resolution of the (main) monitor
      */

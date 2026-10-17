@@ -1,13 +1,18 @@
 package cz.cvut.fel.ida.drawing;
 
 
+import cz.cvut.fel.ida.setup.DrawingStyle;
 import cz.cvut.fel.ida.setup.Settings;
 
 import javax.swing.*;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.text.NumberFormat;
+import java.util.Locale;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -19,6 +24,8 @@ public abstract class Drawer<S> {   //todo next replace hashcodes (which collide
     private static final Logger LOG = Logger.getLogger(Drawer.class.getName());
 
     public NumberFormat numberFormat;
+    protected DrawingStyle style;
+    protected DotBuilder dot;
     protected Settings.Detail drawingDetail;
     protected boolean storeNotShow;
 
@@ -27,6 +34,9 @@ public abstract class Drawer<S> {   //todo next replace hashcodes (which collide
 
     public Drawer(Settings settings) {
         this.settings = settings;
+        this.style = settings.drawingStyle != null ? settings.drawingStyle : new DrawingStyle();
+        this.dot = new DotBuilder(style);
+
         if (settings.drawing) {
             this.graphviz = new GraphViz(settings);
 
@@ -39,14 +49,59 @@ public abstract class Drawer<S> {   //todo next replace hashcodes (which collide
             }
         }
 
-
         this.drawingDetail = settings.drawingDetail;
-        if (drawingDetail == Settings.Detail.LOW){
-            this.numberFormat = null;
-        } else {
-            this.numberFormat = settings.defaultNumberFormat;
-        }
+        this.numberFormat = createNumberFormat();
         this.storeNotShow = settings.storeNotShow;
+    }
+
+    /**
+     * Builds the {@link NumberFormat} used for drawing values from the configurable
+     * {@link DrawingStyle#valueDecimals} and {@link DrawingStyle#displayValues} flags.
+     * Returns null when values should be hidden entirely.
+     */
+    protected NumberFormat createNumberFormat() {
+        if (drawingDetail == Settings.Detail.LOW || !style.displayValues) {
+            return null;
+        }
+        DecimalFormatSymbols symbols = new DecimalFormatSymbols(Locale.US);
+        symbols.setInfinity("Infinity");
+        String pattern = style.valueDecimals <= 0 ? "#" : "#." + repeat('#', style.valueDecimals);
+        return new DecimalFormat(pattern, symbols);
+    }
+
+    private String repeat(char c, int count) {
+        StringBuilder sb = new StringBuilder(count);
+        for (int i = 0; i < count; i++) {
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Formats a numeric value with the current style precision.
+     */
+    public String formatNumber(double value) {
+        if (numberFormat == null) {
+            return "";
+        }
+        return numberFormat.format(value);
+    }
+
+    /**
+     * Opens a graph and emits the graph-level attributes from {@link DrawingStyle#graph}.
+     */
+    protected void startStyledGraph() {
+        graphviz.start_graph();
+        addGraphDefaults();
+    }
+
+    /**
+     * Emits graph-level attributes from {@link DrawingStyle#graph} (call right after the graph is opened).
+     */
+    protected void addGraphDefaults() {
+        for (Map.Entry<String, String> attribute : style.graph.entrySet()) {
+            graphviz.addln(attribute.getKey() + "=" + DotBuilder.quote(attribute.getValue()) + ";");
+        }
     }
 
     public void display(byte[] imageBytes, String name) {
@@ -71,11 +126,15 @@ public abstract class Drawer<S> {   //todo next replace hashcodes (which collide
             LOG.info("Paused for drawing with Graphviz...(this may take a while for bigger graphs)");
             if (storeNotShow) {
                 graphviz.storeGraphSource(obj.toString());
-                byte[] image = graphviz.getGraphUsingTemporaryFile(graphviz.getDotSource(), graphviz.imgtype, graphviz.algorithm);
-                graphviz.writeImageToFile(image, obj.toString());
+                graphviz.storeGraphImage(obj.toString());
                 LOG.info("Graph stored into file named: " + obj.toString());
-            } else {
+            } else if (graphviz.isDisplayableType()) {
                 display(graphviz.getGraphImage(obj.toString()), obj.toString());
+            } else {
+                LOG.info("Image type '" + graphviz.imgtype + "' cannot be displayed; storing the graph instead");
+                graphviz.storeGraphSource(obj.toString());
+                graphviz.storeGraphImage(obj.toString());
+                LOG.info("Graph stored into file named: " + obj.toString());
             }
         } catch (IOException | InterruptedException e) {
             LOG.severe(e.getMessage());
@@ -83,11 +142,18 @@ public abstract class Drawer<S> {   //todo next replace hashcodes (which collide
     }
 
     public byte[] drawIntoFile(S obj, String path) {
-        byte[] image = this.drawIntoBytes(obj);
+        if (this.graphviz == null) {
+            this.graphviz = new GraphViz(this.settings);
+        }
 
-        File file = new File(path);
-        file.getParentFile().mkdirs();
-        graphviz.writeImageToFile(image, file);
+        this.graphviz.clearGraph();
+        loadGraph(obj);
+
+        try {
+            graphviz.renderToFile(new File(path));
+        } catch (IOException | InterruptedException e) {
+            LOG.severe(e.getMessage());
+        }
 
         return null;
     }

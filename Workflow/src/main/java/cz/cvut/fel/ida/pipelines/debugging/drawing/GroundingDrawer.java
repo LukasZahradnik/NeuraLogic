@@ -1,9 +1,7 @@
 package cz.cvut.fel.ida.pipelines.debugging.drawing;
 
 import cz.cvut.fel.ida.drawing.Drawer;
-import cz.cvut.fel.ida.drawing.GraphViz;
 import cz.cvut.fel.ida.logic.Literal;
-import cz.cvut.fel.ida.logic.constructs.example.ValuedFact;
 import cz.cvut.fel.ida.logic.constructs.template.components.GroundHeadRule;
 import cz.cvut.fel.ida.logic.constructs.template.components.GroundRule;
 import cz.cvut.fel.ida.logic.grounding.GroundTemplate;
@@ -27,15 +25,17 @@ public class GroundingDrawer extends Drawer<GroundingSample> {
 
     @Override
     public void loadGraph(GroundingSample sample) {
-        this.graphviz.start_graph();
+        startStyledGraph();
 
         nodeGraph(sample);
 
         if (sample.query.headAtom != null) {
-            graphviz.addln(GraphViz.sanitize(sample.query.headAtom.literal.toString()) + "[shape = tripleoctagon, xlabel=\"\n\n\ntarget = " + sample.target + "  \"]");
+            Map<String, String> targetAttributes = new LinkedHashMap<>();
+            targetAttributes.put("xlabel", "\n\n\ntarget = " + sample.target + "  ");
+            graphviz.addln(dot.node(sample.query.headAtom.literal.toString(), "", "target", targetAttributes));
         }
 
-        this.graphviz.end_graph();
+        graphviz.end_graph();
     }
 
     public void nodeGraph(GroundingSample obj) {
@@ -68,15 +68,15 @@ public class GroundingDrawer extends Drawer<GroundingSample> {
     }
 
     private String drawEdge(Literal groundHead, GroundRule bodyGrounding, GroundHeadRule groundHeadRule) {
-        return bodyGrounding.hashCode() + " -> " + GraphViz.sanitize(groundHead.toString()) + " [fontsize=10, color=blue, fontcolor=green, label = " + GraphViz.sanitize(groundHeadRule.toFullString()) + "]";
+        return dot.edge(bodyGrounding.hashCode(), groundHead.toString(), "compactRuleEdge", groundHeadRule.toFullString());
     }
 
     private String draw(GroundHeadRule groundHeadRule) {
-        return groundHeadRule.hashCode() + " [shape=larrow, fontsize=10, color=green, label=" + GraphViz.sanitize(groundHeadRule.toFullString()) + "]";
+        return dot.node(groundHeadRule.hashCode(), groundHeadRule.toFullString(), "groundHeadRule");
     }
 
     private String draw(GroundRule groundRule) {
-        return groundRule.hashCode() + " [shape=lpromoter, color=red, label=" + GraphViz.sanitize(groundRule.toString()) + "]";
+        return dot.node(groundRule.hashCode(), groundRule.toString(), "groundRule");
     }
 
     public String draw(Literal groundHead) {
@@ -84,19 +84,19 @@ public class GroundingDrawer extends Drawer<GroundingSample> {
         if (groundHead != null) {
             name = groundHead.toString();
         }
-        return GraphViz.sanitize(name) + "[color=blue, fontcolor=blue]";
+        return dot.node(name, name, "groundLiteral");
     }
 
     private String drawEdge(GroundRule bodyGrounding, Literal literal) {
-        return GraphViz.sanitize(literal == null ? "null" : literal.toString()) + " -> " + bodyGrounding.hashCode() + "[color=red, fontcolor=red]";
+        return dot.edge(literal == null ? "null" : literal.toString(), bodyGrounding.hashCode(), "groundRuleToLiteral", "");
     }
 
     public String drawEdge(GroundHeadRule groundHeadRule, GroundRule bodyGrounding) {
-        return bodyGrounding.hashCode() + " -> " + groundHeadRule.hashCode() + "[style=dashed, color=green]";
+        return dot.edge(bodyGrounding.hashCode(), groundHeadRule.hashCode(), "groundHeadRuleToGroundRule", "");
     }
 
     public String drawEdge(Literal groundHead, GroundHeadRule groundHeadRule) {
-        return groundHeadRule.hashCode() + " -> " + GraphViz.sanitize(groundHead.toString()) + "[color=blue]";
+        return dot.edge(groundHeadRule.hashCode(), groundHead.toString(), "headToGroundRule", "");
     }
 
 }

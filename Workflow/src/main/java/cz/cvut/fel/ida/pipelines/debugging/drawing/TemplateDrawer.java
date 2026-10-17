@@ -1,9 +1,7 @@
 package cz.cvut.fel.ida.pipelines.debugging.drawing;
 
 import cz.cvut.fel.ida.drawing.Drawer;
-import cz.cvut.fel.ida.drawing.GraphViz;
 import cz.cvut.fel.ida.logic.Clause;
-import cz.cvut.fel.ida.logic.HornClause;
 import cz.cvut.fel.ida.logic.Literal;
 import cz.cvut.fel.ida.logic.Predicate;
 import cz.cvut.fel.ida.logic.constructs.example.ValuedFact;
@@ -31,7 +29,7 @@ public class TemplateDrawer extends Drawer<Template> {
     @Override
     public void loadGraph(Template obj) {
         graph = new LinkedHashSet<>();
-        graphviz.start_graph();
+        startStyledGraph();
         if (obj instanceof GraphTemplate) {
             loadGraph((GraphTemplate) obj);
         } else {
@@ -79,9 +77,12 @@ public class TemplateDrawer extends Drawer<Template> {
     }
 
     private String draw(WeightedRule rule, BodyAtom bodyAtom) {
-        String edgeColor = bodyAtom.isNegated() ? "red" : "black";
-        String weight = bodyAtom.getConjunctWeight() == null ? "" : bodyAtom.getConjunctWeight().toString(numberFormat);
-        return bodyAtom.literal.liftedHashCode() + " -> " + rule.hashCode() + "[label=" + GraphViz.sanitize(weight) + ", color=" + edgeColor + "]";
+        String styleKey = bodyAtom.isNegated() ? "negatedRuleToBody" : "ruleToBody";
+        String weight = "";
+        if (style.displayValues && style.displayWeights && bodyAtom.getConjunctWeight() != null) {
+            weight = bodyAtom.getConjunctWeight().toString(numberFormat);
+        }
+        return dot.edge(bodyAtom.literal.liftedHashCode(), rule.hashCode(), styleKey, weight);
     }
 
     private String draw(BodyAtom bodyAtom) {
@@ -89,12 +90,15 @@ public class TemplateDrawer extends Drawer<Template> {
     }
 
     private String draw(Literal literal, WeightedRule rule) {
-        String weight = rule.getWeight() != null ? GraphViz.sanitize(rule.getWeight().toString(numberFormat)) : "null : 1";
-        return rule.hashCode() + " -> " + literal.liftedHashCode() + "[label=" + weight + ", color=green, style=dashed]";
+        String weight = "";
+        if (style.displayValues && style.displayWeights) {
+            weight = rule.getWeight() != null ? rule.getWeight().toString(numberFormat) : "null : 1";
+        }
+        return dot.edge(rule.hashCode(), literal.liftedHashCode(), "ruleToHead", weight);
     }
 
     private String draw(BodyAtom bodyAtom, ValuedFact matchedFact) {
-        return matchedFact.literal.liftedHashCode() + " -> " + bodyAtom.literal.liftedHashCode() + "[dir=both, style=dotted, color=blue]";
+        return dot.edge(matchedFact.literal.liftedHashCode(), bodyAtom.literal.liftedHashCode(), "bodyToFact", "");
     }
 
     private String draw(Literal literal) {
@@ -102,15 +106,15 @@ public class TemplateDrawer extends Drawer<Template> {
         if (literal.isNegated()) {
             name = name.substring(1);
         }
-        return literal.liftedHashCode() + "[label=" + GraphViz.sanitize(name) + "]";
+        return dot.node(literal.liftedHashCode(), name, "literal");
     }
 
     private String draw(WeightedRule rule) {
-        return rule.hashCode() + "[label=" + GraphViz.sanitize(rule.getOriginalString()) + ", shape=larrow, color=green]";
+        return dot.node(rule.hashCode(), rule.getOriginalString(), "rule");
     }
 
     private String draw(ValuedFact fact) {
-        return fact.literal.liftedHashCode() + "[shape=house, label=" + GraphViz.sanitize(fact.toString()) + "]";
+        return dot.node(fact.literal.liftedHashCode(), fact.toString(), "fact");
     }
 
 }
