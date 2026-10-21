@@ -30,6 +30,10 @@ public class DetailedClassificationResults extends ClassificationResults {  //to
         super(outputs, aggregationFcn);
     }
 
+    public Double getAUCpr() {
+        return AUCpr;
+    }
+
     @Override
     public boolean betterThan(Results results, Settings.ModelSelection criterion) {
         DetailedClassificationResults other = (DetailedClassificationResults) results;

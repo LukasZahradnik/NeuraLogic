@@ -2,10 +2,13 @@ package cz.cvut.fel.ida.neural.networks.computation.training.strategies;
 
 import cz.cvut.fel.ida.algebra.values.Value;
 import cz.cvut.fel.ida.algebra.values.inits.ValueInitializer;
+import cz.cvut.fel.ida.learning.results.DetailedClassificationResults;
 import cz.cvut.fel.ida.learning.results.Progress;
 import cz.cvut.fel.ida.algebra.values.ScalarValue;
 import cz.cvut.fel.ida.learning.results.Result;
+import cz.cvut.fel.ida.neural.networks.computation.iteration.actions.Accumulating;
 import cz.cvut.fel.ida.neural.networks.computation.iteration.actions.Evaluation;
+import cz.cvut.fel.ida.neural.networks.computation.iteration.visitors.states.neurons.SaturationChecker;
 import cz.cvut.fel.ida.neural.networks.computation.iteration.visitors.weights.WeightUpdater;
 import cz.cvut.fel.ida.neural.networks.computation.training.NeuralModel;
 import cz.cvut.fel.ida.neural.networks.computation.training.NeuralSample;
@@ -19,7 +22,9 @@ import cz.cvut.fel.ida.utils.generic.Pair;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 
 public class PythonTrainingStrategy extends TrainingStrategy {
@@ -41,6 +46,19 @@ public class PythonTrainingStrategy extends TrainingStrategy {
     LearnRateDecayStrategy learnRateDecay;
 
     int epochCount = 0;
+
+    public static final String METRIC_AUC_ROC = "auc_roc";
+    public static final String METRIC_AUC_PR = "auc_pr";
+    public static final String METRIC_BEST_ACCURACY = "best_accuracy";
+    public static final String METRIC_BEST_THRESHOLD = "best_threshold";
+    public static final String METRIC_SATURATION = "saturation";
+
+    /**
+     * The threshold picked from the last training set, passed to validation so
+     * that the reported best accuracy is the same quantity IterativeTrainingStrategy
+     * computes: validation accuracy at the training-chosen threshold.
+     */
+    transient Value lastBestThreshold = new ScalarValue(0.5);
 
     public PythonTrainingStrategy(Settings settings, NeuralModel model, Optimizer optimizer, LearnRateDecayStrategy learnRateDecay) {
         super(settings, model);
@@ -120,6 +138,138 @@ public class PythonTrainingStrategy extends TrainingStrategy {
         }
 
         return results;
+    }
+
+    /**
+     * Trains exactly like {@link #learnSamples(List, int, int)} and additionally
+     * computes the requested deep metrics over the final epoch's results. The
+     * default path is untouched - call this only when metrics are wanted.
+     */
+    public PythonTrainingMetrics learnSamplesWithMetrics(List<NeuralSample> samples, int epochs, int minibatchSize, List<String> metrics) {
+        List<Result> results = learnSamples(samples, epochs, minibatchSize);
+        return new PythonTrainingMetrics(results, computeMetrics(samples, results, metrics, true));
+    }
+
+    /**
+     * Evaluates exactly like {@link #validateSamples(List, int)} and additionally
+     * computes the requested deep metrics. Validation best-accuracy is measured
+     * at the threshold last picked on the training set, matching
+     * IterativeTrainingStrategy's recalculateResults().
+     */
+    public PythonTrainingMetrics validateSamplesWithMetrics(List<NeuralSample> samples, int minibatchSize, List<String> metrics) {
+        List<Result> results = validateSamples(samples, minibatchSize);
+        return new PythonTrainingMetrics(results, computeMetrics(samples, results, metrics, false));
+    }
+
+    /**
+     * Compute deep metrics from results that have already been produced (for
+     * callers, e.g. the static-graph path, that run their own loop over samples).
+     * The results list is never reordered here; classification metrics work on a
+     * defensive copy because computeBestAccuracyThreshold sorts in place.
+     */
+    public Map<String, Double> computeMetrics(List<NeuralSample> samples, List<Result> results, List<String> metrics, boolean isTraining) {
+        Map<String, Double> output = new HashMap<>();
+        if (results == null || results.isEmpty() || metrics == null) {
+            return output;
+        }
+
+        DetailedClassificationResults detailed = null;
+        boolean bestAccuracyComputed = false;
+
+        for (String metric : metrics) {
+            if (metric == null) {
+                continue;
+            }
+            switch (metric) {
+                case METRIC_AUC_ROC:
+                    if (detailed == null) {
+                        detailed = classificationResults(results);
+                    }
+                    if (detailed.AUCroc != null) {
+                        output.put(METRIC_AUC_ROC, detailed.AUCroc);
+                    }
+                    break;
+                case METRIC_AUC_PR:
+                    if (detailed == null) {
+                        detailed = classificationResults(results);
+                    }
+                    if (detailed.getAUCpr() != null) {
+                        output.put(METRIC_AUC_PR, detailed.getAUCpr());
+                    }
+                    break;
+                case METRIC_BEST_ACCURACY:
+                case METRIC_BEST_THRESHOLD:
+                    if (detailed == null) {
+                        detailed = classificationResults(results);
+                    }
+                    if (!bestAccuracyComputed) {
+                        if (isTraining) {
+                            detailed.computeBestAccuracyThreshold(detailed.evaluations);
+                            lastBestThreshold = detailed.bestThreshold;
+                        } else {
+                            detailed.computeBestAccuracy(detailed.evaluations, lastBestThreshold);
+                        }
+                        bestAccuracyComputed = true;
+                    }
+                    if (METRIC_BEST_ACCURACY.equals(metric) && detailed.bestAccuracy != null) {
+                        output.put(METRIC_BEST_ACCURACY, detailed.bestAccuracy);
+                    }
+                    if (METRIC_BEST_THRESHOLD.equals(metric) && detailed.bestThreshold != null) {
+                        output.put(METRIC_BEST_THRESHOLD, ((ScalarValue) detailed.bestThreshold).value);
+                    }
+                    break;
+                case METRIC_SATURATION:
+                    output.put(METRIC_SATURATION, saturationRatio(samples));
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        return output;
+    }
+
+    private DetailedClassificationResults classificationResults(List<Result> results) {
+        return new DetailedClassificationResults(new ArrayList<>(results), settings);
+    }
+
+    private double saturationRatio(List<NeuralSample> samples) {
+        if (samples == null || samples.isEmpty()) {
+            return 0.0;
+        }
+
+        ScalarValue percentage = new ScalarValue(settings.saturationPercentage);
+        Accumulating accumulating = new Accumulating(settings, new SaturationChecker());
+        List<Pair<Value, Value>> pairs = accumulating.accumulateStats(samples);
+        int saturatedNetworks = 0;
+
+        for (Pair<Value, Value> pair : pairs) {
+            Value saturated = pair.r;
+            Value all = pair.s;
+            if (saturated.greaterThan(all.times(percentage))) {
+                saturatedNetworks++;
+            }
+        }
+
+        return (double) saturatedNetworks / samples.size();
+    }
+
+    public static class PythonTrainingMetrics {
+        private final List<Result> results;
+        private final Map<String, Double> metrics;
+
+        public PythonTrainingMetrics(List<Result> results, Map<String, Double> metrics) {
+            this.results = results;
+            this.metrics = metrics;
+        }
+
+        public List<Result> getResults() {
+            return results;
+        }
+
+        public Map<String, Double> getMetrics() {
+            return metrics;
+        }
     }
 
     public Result learnSample(NeuralSample sample) {
